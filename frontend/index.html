@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -38,13 +38,78 @@
       <button id="btn-table" class="tb" title="Table">▦</button>
     </div>
     <div class="toolbar-group">
+      <button id="btn-recent" class="tb" title="Recent files">📁</button>
       <button id="btn-ai" class="tb tb-accent" title="AI Assistant (Ctrl+L)">✨ AI</button>
       <button id="btn-export" class="tb" title="Export HTML">Export</button>
+      <button id="btn-settings" class="tb" title="Settings">⚙</button>
+      <button id="btn-theme" class="tb" title="Toggle theme">🌙</button>
       <span id="file-title" class="file-name">Untitled</span>
     </div>
   </header>
 
-  <!-- ─── AI Panel (hidden by default) ────────────────────── -->
+  <!-- ─── Search bar (hidden by default) ──────────────────── -->
+  <div id="search-bar" class="search-bar hidden">
+    <div class="search-row">
+      <input id="search-input" type="text" placeholder="Search..." autocomplete="off">
+      <label class="search-opt"><input type="checkbox" id="search-regex"> .* </label>
+      <label class="search-opt"><input type="checkbox" id="search-case"> Aa </label>
+      <span id="search-count" class="search-count">0/0</span>
+      <button id="search-prev" class="tb tb-sm" title="Previous (Shift+Enter)">▲</button>
+      <button id="search-next" class="tb tb-sm" title="Next (Enter)">▼</button>
+      <button id="search-close" class="tb tb-sm" title="Close (Esc)">✕</button>
+    </div>
+    <div id="replace-row" class="search-row">
+      <input id="replace-input" type="text" placeholder="Replace..." autocomplete="off">
+      <button id="replace-one" class="tb tb-sm" title="Replace">Replace</button>
+      <button id="replace-all" class="tb tb-sm" title="Replace All">All</button>
+    </div>
+  </div>
+
+  <!-- ─── Recent files panel (hidden) ─────────────────────── -->
+  <div id="recent-panel" class="panel hidden">
+    <div class="panel-header">
+      <span>Recent Files</span>
+      <button id="recent-close" class="tb tb-sm">✕</button>
+    </div>
+    <div id="recent-list" class="panel-list"></div>
+  </div>
+
+  <!-- ─── Settings panel (hidden) ─────────────────────────── -->
+  <div id="settings-panel" class="panel panel-wide hidden">
+    <div class="panel-header">
+      <span>⚙ Settings</span>
+      <button id="settings-close" class="tb tb-sm">✕</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <h3>Editor</h3>
+        <label>Font size <input type="number" id="set-font-size" min="10" max="24" value="15"> px</label>
+        <label>Tab size <input type="number" id="set-tab-size" min="2" max="8" value="4"> spaces</label>
+        <label><input type="checkbox" id="set-word-wrap" checked> Word wrap</label>
+        <label><input type="checkbox" id="set-auto-save" checked> Auto save</label>
+      </div>
+      <div class="settings-section">
+        <h3>Images</h3>
+        <label>
+          <select id="set-image-strategy">
+            <option value="inline">Inline (base64 in .md)</option>
+            <option value="assetDir" selected>Asset dir (.assets/)</option>
+          </select>
+        </label>
+      </div>
+      <div class="settings-section">
+        <h3>AI</h3>
+        <label>API Endpoint <input type="text" id="set-ai-endpoint" placeholder="https://api.openai.com/v1"></label>
+        <label>API Key <input type="password" id="set-ai-key" placeholder="sk-..."></label>
+        <label>Model <input type="text" id="set-ai-model" placeholder="gpt-4o-mini"></label>
+      </div>
+      <div class="settings-actions">
+        <button id="settings-save" class="btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── AI Panel (hidden) ───────────────────────────────── -->
   <div id="ai-panel" class="ai-panel hidden">
     <div class="ai-panel-header">
       <span>✨ AI Assistant</span>
@@ -79,7 +144,9 @@
     <span id="st-words">0 words</span>
     <span id="st-chars">0 chars</span>
     <span id="st-lines">0 lines</span>
+    <span id="st-read-time">~0 min read</span>
     <span id="st-cursor">Ln 1, Col 1</span>
+    <span id="st-auto-saved" class="st-saved"></span>
   </footer>
 
   <script src="js/app.js"></script>
