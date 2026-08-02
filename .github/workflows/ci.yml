@@ -26,6 +26,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
       - name: Check formatting
         run: cargo fmt --check
 
@@ -34,3 +37,6 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Build check (no bundle)
+        run: cargo tauri build --debug --no-bundle
