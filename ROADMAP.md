@@ -59,23 +59,23 @@
 > 把 AI 做成核心卖点，不是附属功能。
 
 ### AI 功能增强
-- [ ] 流式输出（SSE）— AI 回复实时显示，不卡 UI
+- [x] 流式输出（SSE）— AI 回复实时显示，不卡 UI
 - [ ] AI 内联编辑 — 选中文字，按快捷键，AI 直接替换选中内容
 - [ ] AI 续写 — 光标处按 Tab，AI 自动续写下文
 - [ ] AI 对话模式 — 侧边栏多轮对话，可引用文档上下文
-- [ ] 支持更多 AI 后端：
-  - OpenAI / Claude / Gemini（通过兼容 API）
-  - Ollama 本地模型（自动检测）
-  - 自定义 endpoint
+- [x] 支持更多 AI 后端：
+  - [x] OpenAI / Claude / Gemini（通过兼容 API）
+  - [x] Ollama 本地模型（自动检测）
+  - [x] 自定义 endpoint
 - [ ] Context Bundle 增强：
-  - 支持引用多个文件
-  - 支持添加 URL 网页内容
-  - Token 计数估算
+  - [ ] 支持引用多个文件
+  - [ ] 支持添加 URL 网页内容
+  - [ ] Token 计数估算
 - [ ] AI 使用统计（token 消耗 / 费用估算）
 
 ### 安全
 - [ ] API Key 存储迁移到 OS Keychain
-- [ ] AI 请求脱敏日志
+- [x] AI 请求脱敏日志
 
 **发布：** v0.3.0 + Product Hunt 发布
 
@@ -85,19 +85,19 @@
 
 > 让 OneMarkdown 能写"复杂文档"。
 
-- [ ] 数学公式（KaTeX）— `$...$` 和 `$$...$$`
-- [ ] Mermaid 图表 — 流程图/时序图/甘特图
-- [ ] Callouts / Admonitions — `> [!note]` `> [!warning]`
+- [x] 数学公式（KaTeX）— `$...$` 和 `$$...$$`
+- [x] Mermaid 图表 — 流程图/时序图/甘特图
+- [x] Callouts / Admonitions — `> [!note]` `> [!warning]`
 - [ ] 脚注支持
-- [ ] 目录生成（`[toc]` 或 frontmatter 控制）
+- [x] 目录生成（`[toc]` 或 frontmatter 控制）
 - [ ] 图片管理器：
-  - 粘贴/拖拽图片自动处理
-  - 图片压缩（可选）
-  - 图片库浏览
+  - [x] 粘贴/拖拽图片自动处理
+  - [ ] 图片压缩（可选）
+  - [ ] 图片库浏览
 - [ ] 导出增强：
-  - PDF 导出（通过打印或 wkhtmltopdf）
-  - DOCX 导出（通过 pandoc 集成）
-  - 自定义 HTML 模板
+  - [x] PDF 导出（通过打印 Ctrl+P）
+  - [ ] DOCX 导出（通过 pandoc 集成）
+  - [ ] 自定义 HTML 模板
 
 **发布：** v0.4.0
 
