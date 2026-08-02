@@ -41,6 +41,12 @@ fn main() {
             commands::ai::ai_summarize,
             commands::ai::ai_translate,
             commands::ai::ai_context_bundle,
+            // AI streaming
+            commands::ai::ai_explain_stream,
+            commands::ai::ai_summarize_stream,
+            commands::ai::ai_translate_stream,
+            commands::ai::ai_rewrite_stream,
+            commands::ai::ai_stream_cancel,
             // Settings
             commands::editor::get_settings,
             commands::editor::save_settings,

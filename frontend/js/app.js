@@ -9,6 +9,8 @@ let isModified = false;
 let renderTimer = null;
 let autoSaveTimer = null;
 let currentTheme = localStorage.getItem('theme') || 'dark';
+let aiStreaming = false;
+let aiStreamText = '';
 
 // ─── DOM ──────────────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -17,6 +19,8 @@ const preview   = $('#preview');
 const fileTitle = $('#file-title');
 const aiPanel   = $('#ai-panel');
 const aiOutput  = $('#ai-output');
+const aiStatus  = $('#ai-status');
+const aiStopBtn = $('#ai-stop');
 
 const status = {
   file:     $('#st-file'),
@@ -47,6 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
   editor.value = `# Welcome to OneMarkdown
 
 > Open, write, publish. One file is all you need.
+
+[toc]
 
 ## Why OneMarkdown?
 
@@ -86,6 +92,29 @@ fn main() {
 
 ---
 
+## Math
+
+Inline math: $E = mc^2$ and $\sum_{i=1}^{n} x_i = x_1 + x_2 + \cdots + x_n$
+
+Block math:
+
+$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+
+$$\frac{n!}{k!(n-k)!} = \binom{n}{k}$$
+
+## Callouts
+
+> [!tip] Getting Started
+> Callouts highlight important information with colored blocks and icons.
+
+> [!warning]
+> Be careful with unsaved changes!
+
+> [!info] Supported types
+> note, tip, warning, danger, info, question, example, quote, bug
+
+---
+
 *Start writing — one file is all you need.*`;
 
   renderPreview();
@@ -99,6 +128,13 @@ function applyTheme(theme) {
   localStorage.setItem('theme', theme);
   const btn = $('#btn-theme');
   if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+  if (mermaidReady) {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: currentTheme === 'dark' ? 'dark' : 'default',
+      securityLevel: 'loose',
+    });
+  }
 }
 
 // ─── Editor events ────────────────────────────────────────────────
@@ -194,13 +230,350 @@ function bindEditor() {
   });
 }
 
+// ─── Callout / Admonition types ─────────────────────────────────────
+const CALLOUT_TYPES = {
+  note:      { label: 'Note',      icon: '📝' },
+  tip:       { label: 'Tip',       icon: '💡' },
+  warning:   { label: 'Warning',   icon: '⚠️' },
+  danger:    { label: 'Danger',    icon: '🔥' },
+  info:      { label: 'Info',      icon: 'ℹ️' },
+  question:  { label: 'Question',  icon: '❓' },
+  example:   { label: 'Example',   icon: '📋' },
+  quote:     { label: 'Quote',     icon: '💬' },
+  bug:       { label: 'Bug',       icon: '🐛' },
+};
+
+function processCallouts() {
+  const blockquotes = preview.querySelectorAll('blockquote');
+  blockquotes.forEach(bq => {
+    const firstP = bq.querySelector('p');
+    if (!firstP) return;
+    const text = firstP.textContent || '';
+    // Match [!type] or [!type] Title
+    const match = text.match(/^\[!([a-zA-Z]+)\]\s*(.*)/);
+    if (!match) return;
+
+    const type = match[1].toLowerCase();
+    const meta = CALLOUT_TYPES[type];
+    if (!meta) return;
+
+    const title = match[2] || meta.label;
+
+    // Build callout div
+    const callout = document.createElement('div');
+    callout.className = 'callout callout-' + type;
+
+    const header = document.createElement('div');
+    header.className = 'callout-header';
+    header.innerHTML = '<span class="callout-icon">' + meta.icon + '</span><span class="callout-title">' + escapeHtml(title) + '</span>';
+
+    const body = document.createElement('div');
+    body.className = 'callout-body';
+
+    // Collect body content: all children after the first <p> (the [!type] line)
+    const children = Array.from(bq.children);
+    let hasBody = false;
+    for (let i = 1; i < children.length; i++) {
+      body.appendChild(children[i].cloneNode(true));
+      hasBody = true;
+    }
+
+    callout.appendChild(header);
+    if (hasBody) {
+      callout.appendChild(body);
+    }
+
+    bq.replaceWith(callout);
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ─── Mermaid ──────────────────────────────────────────────────────
+let mermaidReady = false;
+
+function initMermaid() {
+  try {
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: currentTheme === 'dark' ? 'dark' : 'default',
+        securityLevel: 'loose',
+      });
+      mermaidReady = true;
+    }
+  } catch (e) {
+    console.error('Mermaid init error:', e);
+  }
+}
+
+async function renderMermaidDiagrams() {
+  if (!mermaidReady) return;
+  const blocks = preview.querySelectorAll('code.language-mermaid');
+  if (blocks.length === 0) return;
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: currentTheme === 'dark' ? 'dark' : 'default',
+    securityLevel: 'loose',
+  });
+
+  for (const code of blocks) {
+    const pre = code.parentElement;
+    const container = document.createElement('div');
+    container.className = 'mermaid';
+    container.textContent = code.textContent;
+    try {
+      pre.replaceWith(container);
+    } catch (e) {
+      console.error('Mermaid replace error:', e);
+    }
+  }
+
+  try {
+    await mermaid.run({ nodes: preview.querySelectorAll('.mermaid') });
+  } catch (e) {
+    console.error('Mermaid render error:', e);
+    preview.querySelectorAll('.mermaid:not([data-processed])').forEach(el => {
+      el.innerHTML = `<p style="color:var(--red)">⚠ Mermaid diagram error: ${e.message || e}</p><pre>${el.textContent}</pre>`;
+    });
+  }
+}
+
 // ─── Render ───────────────────────────────────────────────────────
 async function renderPreview() {
   try {
     const res = await invoke('render_markdown', { content: editor.value });
     preview.innerHTML = res.html;
+    processCallouts();
+    renderMath(preview);
+    generateTOC(preview);
   } catch (err) {
     preview.innerHTML = `<p style="color:var(--red)">Render error: ${err}</p>`;
+  }
+  await renderMermaidDiagrams();
+}
+
+// ─── KaTeX math rendering ──────────────────────────────────────
+function renderMath(element) {
+  if (typeof katex === 'undefined') return; // KaTeX not yet loaded
+
+  // Tags whose content must never be treated as math
+  const SKIP_TAGS = new Set(['CODE', 'PRE', 'SCRIPT', 'STYLE', 'TEXTAREA', 'KATEX']);
+
+  // Collect all text nodes outside skipped elements
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeValue.indexOf('$') === -1) return NodeFilter.FILTER_REJECT;
+      let el = node.parentElement;
+      while (el && el !== element) {
+        if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+        // Skip already-rendered KaTeX
+        if (el.classList && el.classList.contains('katex')) return NodeFilter.FILTER_REJECT;
+        el = el.parentElement;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  // Collect nodes first (walker is live and will break if we mutate)
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+
+  for (const textNode of nodes) {
+    const text = textNode.nodeValue;
+    // Skip if no dollar signs left (may have been partially processed)
+    if (text.indexOf('$') === -1) continue;
+
+    // Build a regex that matches \$\$...\$\$ (block) or $...$ (inline)
+    // but NOT \\$ (escaped dollars)
+    // We process the whole string and collect replacements
+    const re = /(\$\$)((?:[^$]|\\\$)+?)\1|(?<!\\)\$((?:[^$\n]|\\\$)+?)\$/g;
+    let match;
+    let lastIndex = 0;
+    const fragments = [];
+    let hasMath = false;
+
+    while ((match = re.exec(text)) !== null) {
+      hasMath = true;
+      // Add text before this match
+      if (match.index > lastIndex) {
+        fragments.push(document.createTextNode(text.slice(lastIndex, match.index)));
+      }
+
+      const isBlock = match[1] === '$$';
+      const raw = isBlock ? match[2] : match[3];
+      // Unescape \$ to $
+      const tex = raw.replace(/\\\$/g, '$');
+
+      try {
+        const html = katex.renderToString(tex, {
+          displayMode: isBlock,
+          throwOnError: false,
+          trust: true,
+        });
+        const span = document.createElement('span');
+        span.innerHTML = html;
+        fragments.push(isBlock ? wrapBlockMath(span) : span);
+      } catch (e) {
+        // On error, leave the original text
+        fragments.push(document.createTextNode(isBlock ? `$$${raw}$$` : `$${raw}$`));
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (!hasMath) continue;
+
+    // Remaining text after last match
+    if (lastIndex < text.length) {
+      fragments.push(document.createTextNode(text.slice(lastIndex)));
+    }
+
+    // Replace the original text node with fragments
+    const parent = textNode.parentNode;
+    if (!parent) continue;
+    for (const frag of fragments) {
+      parent.insertBefore(frag, textNode);
+    }
+    parent.removeChild(textNode);
+  }
+}
+
+function wrapBlockMath(innerSpan) {
+  const div = document.createElement('div');
+  div.className = 'katex-block';
+  div.style.textAlign = 'center';
+  div.style.margin = '1em 0';
+  div.style.overflowX = 'auto';
+  div.appendChild(innerSpan);
+  return div;
+}
+
+// ─── Table of Contents ───────────────────────────────────────────
+/**
+ * Slugify a string into a URL-safe ID.
+ * Lowercase, strip non-alphanumerics (keep CJK), collapse hyphens.
+ */
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Find [toc] markers in the preview and replace them with a
+ * clickable table of contents built from all h1–h6 headings.
+ */
+function generateTOC(container) {
+  // Collect all headings (skip any inside <pre> / code blocks)
+  const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  const filtered = [];
+  for (const h of headings) {
+    if (h.closest('pre') || h.closest('code')) continue;
+    filtered.push(h);
+  }
+
+  if (filtered.length === 0) return;
+
+  // Assign unique IDs to every heading
+  const usedIds = {};
+  for (const h of filtered) {
+    if (h.id) continue;
+    let base = slugify(h.textContent);
+    if (!base) base = 'heading';
+    let id = base;
+    let n = 2;
+    while (usedIds[id]) { id = base + '-' + n++; }
+    usedIds[id] = true;
+    h.id = id;
+  }
+
+  // Find [toc] markers — appear as <p>[toc]</p> (case-insensitive, trimmed)
+  const tocMarkers = [];
+  for (const el of container.children) {
+    if (el.tagName === 'P' && el.textContent.trim().toLowerCase() === '[toc]') {
+      tocMarkers.push(el);
+    }
+  }
+  if (tocMarkers.length === 0) return;
+
+  // Build nested list
+  const tocNav = document.createElement('nav');
+  tocNav.className = 'toc';
+  tocNav.setAttribute('aria-label', 'Table of Contents');
+
+  const tocTitle = document.createElement('div');
+  tocTitle.className = 'toc-title';
+  tocTitle.textContent = 'Table of Contents';
+  tocNav.appendChild(tocTitle);
+
+  const list = document.createElement('ul');
+  list.className = 'toc-list';
+
+  // Track nesting: stack of { level, ul } pairs
+  const stack = [{ level: 0, ul: list }];
+
+  for (const h of filtered) {
+    const level = parseInt(h.tagName.charAt(1));
+
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    a.className = 'toc-link';
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      history.replaceState(null, '', '#' + h.id);
+    });
+    li.appendChild(a);
+
+    // Pop back to the correct parent level
+    while (stack.length > 1 && stack[stack.length - 1].level >= level) {
+      stack.pop();
+    }
+
+    const parentUl = stack[stack.length - 1].ul;
+
+    if (level > stack[stack.length - 1].level) {
+      const subList = document.createElement('ul');
+      subList.className = 'toc-list';
+      if (parentUl.lastElementChild) parentUl.lastElementChild.appendChild(subList);
+      stack.push({ level, ul: subList });
+      subList.appendChild(li);
+    } else {
+      parentUl.appendChild(li);
+    }
+  }
+
+  tocNav.appendChild(list);
+
+  // Replace each [toc] marker with the TOC (clone for multiples)
+  for (let i = 0; i < tocMarkers.length; i++) {
+    const clone = i === 0 ? tocNav : tocNav.cloneNode(true);
+    if (i > 0) {
+      clone.querySelectorAll('.toc-link').forEach((a) => {
+        const targetId = a.getAttribute('href').slice(1);
+        const target = document.getElementById(targetId);
+        if (target) {
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            history.replaceState(null, '', '#' + targetId);
+          });
+        }
+      });
+    }
+    tocMarkers[i].replaceWith(clone);
   }
 }
 
@@ -476,43 +849,90 @@ async function loadSettingsIntoUI() {
 // ─── AI ───────────────────────────────────────────────────────────
 function bindAI() {
   $('#btn-ai').onclick = () => aiPanel.classList.toggle('hidden');
-  $('#ai-close').onclick = () => aiPanel.classList.add('hidden');
+  $('#ai-close').onclick = () => {
+    if (aiStreaming) stopAiStream();
+    aiPanel.classList.add('hidden');
+  };
 
   document.querySelectorAll('.ai-btn').forEach(btn => {
+    if (btn.id === 'ai-stop') return; // handled separately
     btn.onclick = () => handleAiAction(btn.dataset.action);
   });
+
+  aiStopBtn.onclick = stopAiStream;
+
+  // Listen for streaming events from backend
+  listen('ai-chunk', (event) => {
+    if (!aiStreaming) return;
+    aiStreamText += event.payload;
+    aiOutput.textContent = aiStreamText;
+    // Auto-scroll to bottom
+    aiOutput.scrollTop = aiOutput.scrollHeight;
+  });
+
+  listen('ai-done', (event) => {
+    if (!aiStreaming) return;
+    aiStreaming = false;
+    aiStatus.classList.add('hidden');
+    if (event.payload === 'cancelled') {
+      aiOutput.textContent = aiStreamText + '\n\n[Stream cancelled]';
+    }
+  });
+}
+
+function startAiStream() {
+  aiStreaming = true;
+  aiStreamText = '';
+  aiOutput.textContent = '';
+  aiStatus.classList.remove('hidden');
+}
+
+function stopAiStream() {
+  if (!aiStreaming) return;
+  invoke('ai_stream_cancel');
 }
 
 async function handleAiAction(action) {
   const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
   const fullContent = editor.value;
-  aiOutput.textContent = '⏳ Thinking...';
+
+  // Context bundle doesn't need streaming
+  if (action === 'context') {
+    aiOutput.textContent = '⏳ Loading...';
+    try {
+      const text = await invoke('ai_context_bundle', { content: fullContent, includeFrontmatter: true });
+      aiOutput.textContent = text || '(empty)';
+    } catch (err) {
+      aiOutput.textContent = `❌ ${err}`;
+    }
+    return;
+  }
+
+  // Use streaming commands for AI actions
+  startAiStream();
 
   try {
-    let result;
     switch (action) {
       case 'explain':
-        result = await invoke('ai_explain', { text: sel || fullContent, context: sel ? fullContent : null });
+        await invoke('ai_explain_stream', { text: sel || fullContent, context: sel ? fullContent : null });
         break;
       case 'summarize':
-        result = await invoke('ai_summarize', { content: fullContent, maxSentences: 5 });
+        await invoke('ai_summarize_stream', { content: fullContent, maxSentences: 5 });
         break;
       case 'translate':
         const lang = prompt('Translate to:', 'English');
-        if (!lang) return;
-        result = await invoke('ai_translate', { text: sel || fullContent, targetLang: lang });
+        if (!lang) { aiStreaming = false; aiStatus.classList.add('hidden'); return; }
+        await invoke('ai_translate_stream', { text: sel || fullContent, targetLang: lang });
         break;
       case 'rewrite':
         const instr = prompt('How to rewrite?', 'Make it more concise and professional');
-        if (!instr) return;
-        result = await invoke('ai_rewrite', { text: sel || fullContent, instruction: instr });
-        break;
-      case 'context':
-        result = { text: await invoke('ai_context_bundle', { content: fullContent, includeFrontmatter: true }) };
+        if (!instr) { aiStreaming = false; aiStatus.classList.add('hidden'); return; }
+        await invoke('ai_rewrite_stream', { text: sel || fullContent, instruction: instr });
         break;
     }
-    aiOutput.textContent = result?.text || '(empty response)';
   } catch (err) {
+    aiStreaming = false;
+    aiStatus.classList.add('hidden');
     aiOutput.textContent = `❌ ${err}`;
   }
 }

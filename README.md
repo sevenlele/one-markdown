@@ -74,6 +74,49 @@ Press `Ctrl+L` to open the AI panel. Configure your API endpoint in Settings.
 
 Uses OpenAI-compatible API (works with OpenAI, Anthropic via proxy, local LLMs, etc.)
 
+## 📝 Callouts / Admonitions
+
+OneMarkdown supports callouts (admonitions) — colored blocks with icons for highlighting important information.
+
+### Syntax
+
+```markdown
+> [!note] Title
+> Content goes here.
+> Multiple lines are supported.
+```
+
+The title is optional — if omitted, the type label is used:
+
+```markdown
+> [!tip]
+> This is a tip without a custom title.
+```
+
+### Supported Types
+
+| Type | Label | Icon |
+|------|-------|------|
+| `note` | Note | 📝 |
+| `tip` | Tip | 💡 |
+| `warning` | Warning | ⚠️ |
+| `danger` | Danger | 🔥 |
+| `info` | Info | ℹ️ |
+| `question` | Question | ❓ |
+| `example` | Example | 📋 |
+| `quote` | Quote | 💬 |
+| `bug` | Bug | 🐛 |
+
+### Example
+
+```markdown
+> [!warning] Careful!
+> This operation cannot be undone.
+
+> [!tip]
+> Use Ctrl+S to save your work frequently.
+```
+
 ## ⌨️ Keyboard Shortcuts
 
 | Shortcut | Action |

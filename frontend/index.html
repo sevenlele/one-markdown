@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OneMarkdown</title>
   <link rel="stylesheet" href="css/style.css">
+  <!-- KaTeX math rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <!-- Mermaid diagram rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 </head>
 <body>
   <!-- ─── Toolbar ─────────────────────────────────────────── -->
@@ -122,6 +127,10 @@
       <button class="ai-btn" data-action="translate">🌐 Translate</button>
       <button class="ai-btn" data-action="rewrite">✏️ Rewrite</button>
       <button class="ai-btn" data-action="context">📦 Context Bundle</button>
+    </div>
+    <div id="ai-status" class="ai-status hidden">
+      <span class="ai-streaming-indicator">⏳ Streaming...</span>
+      <button id="ai-stop" class="ai-btn ai-stop-btn">⏹ Stop</button>
     </div>
     <div id="ai-output" class="ai-output"></div>
   </div>
