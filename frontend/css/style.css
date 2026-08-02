@@ -239,3 +239,22 @@ html,body{height:100%;overflow:hidden;font-family:var(--sans);background:var(--b
 
 /* ─── Selection ────────────────────────────────────────── */
 #editor::selection,#preview ::selection{background:rgba(59,130,246,.28)}
+
+/* ─── Print ──────────────────────────────────────────────── */
+@media print{
+  body{background:#fff;color:#1f2328}
+  #toolbar,#statusbar,#editor-pane,.resizer,.ai-panel,.panel,.search-bar{display:none!important}
+  #main{display:block;height:auto}
+  #preview-pane{width:100%!important;flex:none}
+  #preview{padding:0;overflow:visible;background:#fff}
+  #preview h1,#preview h2,#preview h3,#preview h4{color:#1f2328}
+  #preview a{color:#0969da;text-decoration:underline}
+  #preview code{background:#f6f8fa;border:1px solid #d0d7de}
+  #preview pre{background:#f6f8fa;border:1px solid #d0d7de}
+  #preview th,#preview td{border:1px solid #d0d7de}
+  #preview blockquote{border-left-color:#d0d7de;color:#656d76}
+  #preview hr{border-top-color:#d0d7de}
+  #preview img{max-width:100%;page-break-inside:avoid}
+  #preview pre{page-break-inside:avoid}
+  #preview h1,#preview h2,#preview h3{page-break-after:avoid}
+}

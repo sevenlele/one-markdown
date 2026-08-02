@@ -6,6 +6,7 @@ mod core {
     pub mod frontmatter;
     pub mod markdown;
     pub mod assets;
+    pub mod watcher;
 }
 
 mod commands {
@@ -45,6 +46,8 @@ fn main() {
             commands::editor::save_settings,
             // External change detection
             commands::editor::check_external_change,
+            commands::editor::start_watching,
+            commands::editor::stop_watching,
         ])
         .run(tauri::generate_context!())
         .expect("OneMarkdown failed to start");

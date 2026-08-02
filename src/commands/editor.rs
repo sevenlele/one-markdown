@@ -1,10 +1,11 @@
-use crate::core::{assets, frontmatter, markdown};
+use crate::core::{assets, frontmatter, markdown, watcher};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
-use tauri::Manager;
+use std::sync::{mpsc, Mutex};
+use std::thread;
+use tauri::{Emitter, Manager};
 
 // ─── State ────────────────────────────────────────────────────────────
 
@@ -12,6 +13,8 @@ pub struct EditorState {
     pub current_path: Option<PathBuf>,
     pub recent_files: Vec<PathBuf>,
     pub settings: Settings,
+    pub watch_stop: Option<std::sync::mpsc::Sender<()>>,
+    pub _watcher: Option<watcher::FileWatcher>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +52,8 @@ impl EditorState {
             current_path: None,
             recent_files: load_recent_files(),
             settings,
+            watch_stop: None,
+            _watcher: None,
         }
     }
 }
@@ -277,6 +282,65 @@ pub async fn check_external_change(
     } else {
         Ok(None)
     }
+}
+
+/// Start watching the current file for external changes.
+/// Emits a "file-changed" event to the frontend when the file is modified externally.
+#[tauri::command]
+pub fn start_watching(
+    path: String,
+    app: tauri::AppHandle,
+    state: tauri::State<Mutex<EditorState>>,
+) -> Result<(), String> {
+    // Stop any existing watcher
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        if let Some(tx) = s.watch_stop.take() {
+            let _ = tx.send(());
+        }
+        s._watcher = None;
+    }
+
+    let (file_watcher, rx) = watcher::FileWatcher::watch(&path)
+        .map_err(|e| format!("Watch error: {}", e))?;
+
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+
+    // Store watcher and stop signal in state
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        s._watcher = Some(file_watcher);
+        s.watch_stop = Some(stop_tx);
+    }
+
+    // Spawn a thread to listen for file changes and emit events
+    thread::spawn(move || {
+        loop {
+            if stop_rx.try_recv().is_ok() {
+                break;
+            }
+            match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                Ok(_changed_path) => {
+                    let _ = app.emit("file-changed", ());
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Stop watching the current file.
+#[tauri::command]
+pub fn stop_watching(state: tauri::State<Mutex<EditorState>>) -> Result<(), String> {
+    let mut s = state.lock().map_err(|e| e.to_string())?;
+    if let Some(tx) = s.watch_stop.take() {
+        let _ = tx.send(());
+    }
+    s._watcher = None;
+    Ok(())
 }
 
 // ─── Persistence helpers ──────────────────────────────────────────────

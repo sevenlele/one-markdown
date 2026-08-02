@@ -1,6 +1,7 @@
 // OneMarkdown — Frontend (Phase 1)
 const { invoke } = window.__TAURI__.core;
 const { open, save } = window.__TAURI__.dialog;
+const { listen } = window.__TAURI__.event;
 
 // ─── State ────────────────────────────────────────────────────────
 let currentPath = '';
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindShortcuts();
   bindWindowClose();
   bindDragDrop();
+  bindFileWatcher();
   loadSettingsIntoUI();
 
   editor.value = `# Welcome to OneMarkdown
@@ -208,6 +210,7 @@ function bindToolbar() {
   $('#btn-open').onclick = openFile;
   $('#btn-save').onclick = saveFile;
   $('#btn-export').onclick = exportHtml;
+  $('#btn-print').onclick = printPreview;
   $('#btn-theme').onclick = () => applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
 
   $('#btn-bold').onclick   = () => wrap('**', '**');
@@ -388,6 +391,7 @@ function bindRecent() {
               updateTitle();
               renderPreview();
               updateStatus();
+              startWatching(info.path);
             } catch (err) {
               alert(`Cannot open: ${err}`);
             }
@@ -540,6 +544,7 @@ function bindDragDrop() {
           updateTitle();
           renderPreview();
           updateStatus();
+          startWatching(info.path);
         } catch (err) {
           console.error('Drop open error:', err);
         }
@@ -563,6 +568,7 @@ function bindShortcuts() {
       case 'k': e.preventDefault(); insertLink(); break;
       case 'e': e.preventDefault(); wrap('`', '`'); break;
       case 'l': e.preventDefault(); aiPanel.classList.toggle('hidden'); break;
+      case 'p': e.preventDefault(); printPreview(); break;
       case 'f':
         e.preventDefault();
         window._searchBar.classList.remove('hidden');
@@ -625,9 +631,57 @@ function flashSaved() {
   setTimeout(() => status.saved.classList.remove('show'), 2000);
 }
 
+// ─── File watcher (external change detection) ───────────────────
+function bindFileWatcher() {
+  listen('file-changed', async () => {
+    if (!currentPath) return;
+    // Prompt user to reload
+    const name = currentPath.split(/[/\\]/).pop();
+    const reload = confirm(`"${name}" has been modified externally.\n\nReload with the new version?`);
+    if (reload) {
+      try {
+        const info = await invoke('open_file', { path: currentPath });
+        editor.value = info.content;
+        isModified = false;
+        updateTitle();
+        renderPreview();
+        updateStatus();
+      } catch (err) {
+        console.error('Reload error:', err);
+      }
+    } else {
+      isModified = true;
+      updateTitle();
+    }
+  });
+}
+
+async function startWatching(path) {
+  try {
+    await invoke('start_watching', { path });
+  } catch (err) {
+    console.error('Watch error:', err);
+  }
+}
+
+async function stopWatching() {
+  try {
+    await invoke('stop_watching');
+  } catch (err) {
+    // ignore
+  }
+}
+
+// ─── Print support ────────────────────────────────────────────────
+function printPreview() {
+  // Open print dialog with preview content
+  window.print();
+}
+
 // ─── File operations ──────────────────────────────────────────────
 async function newFile() {
   if (isModified && !confirm('Discard unsaved changes?')) return;
+  stopWatching();
   await invoke('new_file');
   editor.value = '';
   currentPath = '';
@@ -653,6 +707,7 @@ async function openFile() {
     updateTitle();
     renderPreview();
     updateStatus();
+    startWatching(info.path);
   } catch (err) {
     console.error('Open error:', err);
   }
@@ -683,6 +738,7 @@ async function saveFileAs() {
     status.file.textContent = filePath;
     updateTitle();
     flashSaved();
+    startWatching(filePath);
   } catch (err) {
     console.error('Save as error:', err);
   }
