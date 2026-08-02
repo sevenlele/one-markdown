@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use tauri::Manager;
 
 // ─── State ────────────────────────────────────────────────────────────
 
 pub struct EditorState {
     pub current_path: Option<PathBuf>,
-    pub content: String,
     pub recent_files: Vec<PathBuf>,
     pub settings: Settings,
 }
@@ -47,7 +47,6 @@ impl EditorState {
         let settings = load_settings();
         Self {
             current_path: None,
-            content: String::new(),
             recent_files: load_recent_files(),
             settings,
         }
@@ -77,6 +76,7 @@ pub struct RenderResult {
 
 // ─── Commands ─────────────────────────────────────────────────────────
 
+/// Stateless — no mutex, no I/O, just pure computation.
 #[tauri::command]
 pub fn render_markdown(content: String) -> Result<RenderResult, String> {
     let doc = frontmatter::parse(&content);
@@ -94,9 +94,15 @@ pub fn render_markdown(content: String) -> Result<RenderResult, String> {
     })
 }
 
+/// Async — file I/O doesn't block the UI thread.
 #[tauri::command]
-pub fn open_file(path: String, state: tauri::State<Mutex<EditorState>>) -> Result<FileInfo, String> {
-    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+pub async fn open_file(
+    path: String,
+    state: tauri::State<'_, Mutex<EditorState>>,
+) -> Result<FileInfo, String> {
+    let content = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| e.to_string())?;
     let doc = frontmatter::parse(&content);
     let path_buf = PathBuf::from(&path);
     let name = path_buf
@@ -106,7 +112,6 @@ pub fn open_file(path: String, state: tauri::State<Mutex<EditorState>>) -> Resul
 
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.current_path = Some(path_buf.clone());
-    s.content = content.clone();
 
     // Update recent files (MRU order)
     s.recent_files.retain(|p| p != &path_buf);
@@ -123,30 +128,40 @@ pub fn open_file(path: String, state: tauri::State<Mutex<EditorState>>) -> Resul
     })
 }
 
+/// Async — file I/O doesn't block the UI thread.
 #[tauri::command]
-pub fn save_file(content: String, state: tauri::State<Mutex<EditorState>>) -> Result<String, String> {
-    let mut s = state.lock().map_err(|e| e.to_string())?;
-    if let Some(path) = &s.current_path {
-        fs::write(path, &content).map_err(|e| e.to_string())?;
-        s.content = content;
-        Ok(path.to_string_lossy().to_string())
-    } else {
-        Err("No file open — use save_file_as".into())
-    }
+pub async fn save_file(
+    content: String,
+    state: tauri::State<'_, Mutex<EditorState>>,
+) -> Result<String, String> {
+    let path = {
+        let s = state.lock().map_err(|e| e.to_string())?;
+        s.current_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .ok_or_else(|| "No file open — use save_file_as".to_string())?
+    };
+
+    tokio::fs::write(&path, &content)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
+/// Async — file I/O doesn't block the UI thread.
 #[tauri::command]
-pub fn save_file_as(
+pub async fn save_file_as(
     path: String,
     content: String,
-    state: tauri::State<Mutex<EditorState>>,
+    state: tauri::State<'_, Mutex<EditorState>>,
 ) -> Result<String, String> {
     let path_buf = PathBuf::from(&path);
-    fs::write(&path_buf, &content).map_err(|e| e.to_string())?;
+    tokio::fs::write(&path_buf, &content)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.current_path = Some(path_buf.clone());
-    s.content = content;
     s.recent_files.retain(|p| p != &path_buf);
     s.recent_files.insert(0, path_buf);
     save_recent_files(&s.recent_files);
@@ -158,7 +173,6 @@ pub fn save_file_as(
 pub fn new_file(state: tauri::State<Mutex<EditorState>>) -> Result<FileInfo, String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.current_path = None;
-    s.content = String::new();
     Ok(FileInfo {
         path: String::new(),
         name: "Untitled".into(),
@@ -171,39 +185,52 @@ pub fn new_file(state: tauri::State<Mutex<EditorState>>) -> Result<FileInfo, Str
 #[tauri::command]
 pub fn get_recent_files(state: tauri::State<Mutex<EditorState>>) -> Result<Vec<String>, String> {
     let s = state.lock().map_err(|e| e.to_string())?;
-    Ok(s.recent_files.iter().map(|p| p.to_string_lossy().to_string()).collect())
+    Ok(s
+        .recent_files
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect())
 }
 
+/// Async — export can be slow for large docs.
 #[tauri::command]
-pub fn export_html(content: String, path: String) -> Result<String, String> {
+pub async fn export_html(content: String, path: String) -> Result<String, String> {
     let doc = frontmatter::parse(&content);
-    let title = doc
-        .frontmatter
-        .title
-        .unwrap_or_else(|| {
-            PathBuf::from(&path)
-                .file_stem()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Document".into())
-        });
+    let title = doc.frontmatter.title.unwrap_or_else(|| {
+        PathBuf::from(&path)
+            .file_stem()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Document".into())
+    });
     let html = markdown::to_standalone_html(&doc.body, &title);
-    fs::write(&path, &html).map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, &html)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(path)
 }
 
+/// Async — image I/O.
 #[tauri::command]
-pub fn save_pasted_image(
+pub async fn save_pasted_image(
     image_data: String,
     mime_type: String,
-    state: tauri::State<Mutex<EditorState>>,
+    state: tauri::State<'_, Mutex<EditorState>>,
 ) -> Result<assets::SavedImage, String> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&image_data)
-        .map_err(|e| e.to_string())?;
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &image_data,
+    )
+    .map_err(|e| e.to_string())?;
 
-    let s = state.lock().map_err(|e| e.to_string())?;
-    let doc_path = s.current_path.as_ref().map(|p| p.to_string_lossy().to_string());
-    let strategy = s.settings.image_strategy.clone();
+    let (doc_path, strategy) = {
+        let s = state.lock().map_err(|e| e.to_string())?;
+        let doc_path = s
+            .current_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+        let strategy = s.settings.image_strategy.clone();
+        (doc_path, strategy)
+    };
 
     assets::save_image(&bytes, &mime_type, doc_path.as_deref(), &strategy)
         .map_err(|e| e.to_string())
@@ -226,6 +253,32 @@ pub fn save_settings(
     Ok(())
 }
 
+/// Check if the file has been modified externally and return updated content if so.
+#[tauri::command]
+pub async fn check_external_change(
+    path: String,
+    known_mtime_ms: u64,
+) -> Result<Option<String>, String> {
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mtime = meta
+        .modified()
+        .map_err(|e| e.to_string())?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    if mtime > known_mtime_ms {
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
+}
+
 // ─── Persistence helpers ──────────────────────────────────────────────
 
 fn config_dir() -> PathBuf {
@@ -246,8 +299,14 @@ fn load_recent_files() -> Vec<PathBuf> {
 fn save_recent_files(files: &[PathBuf]) {
     let dir = config_dir();
     let _ = fs::create_dir_all(&dir);
-    let paths: Vec<String> = files.iter().map(|p| p.to_string_lossy().to_string()).collect();
-    let _ = fs::write(dir.join("recent.json"), serde_json::to_string(&paths).unwrap_or_default());
+    let paths: Vec<String> = files
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    let _ = fs::write(
+        dir.join("recent.json"),
+        serde_json::to_string(&paths).unwrap_or_default(),
+    );
 }
 
 fn load_settings() -> Settings {

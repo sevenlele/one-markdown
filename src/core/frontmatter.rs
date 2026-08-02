@@ -44,11 +44,12 @@ pub fn parse(content: &str) -> ParsedDocument {
         };
     }
 
-    // Find the closing ---
+    // Find the closing --- (must be on its own line: \n---\n or \n---\r\n)
     let after_first = &trimmed[3..];
-    if let Some(end_idx) = after_first.find("\n---") {
+    if let Some(end_idx) = after_first.find("\n---\n").or_else(|| after_first.find("\n---\r\n")) {
         let yaml_str = &after_first[..end_idx];
-        let body_start = end_idx + 4; // skip \n---
+        // skip \n---\n (5 bytes)
+        let body_start = end_idx + 5;
 
         let frontmatter: Frontmatter = serde_yaml::from_str(yaml_str).unwrap_or_default();
         let body = after_first[body_start..].trim_start_matches('\n').to_string();

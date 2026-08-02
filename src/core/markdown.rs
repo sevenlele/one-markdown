@@ -1,21 +1,35 @@
 use pulldown_cmark::{html, Options, Parser};
+use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::html::{styled_line_to_highlighted_html, IncludeBackground};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
+// ─── Global caches (initialized once) ──────────────────────────────
+
+static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+static THEME_SET: OnceLock<ThemeSet> = OnceLock::new();
+
+fn ss() -> &'static SyntaxSet {
+    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn ts() -> &'static ThemeSet {
+    THEME_SET.get_or_init(ThemeSet::load_defaults)
+}
+
+// ─── Public API ────────────────────────────────────────────────────
+
 /// Render Markdown to HTML fragment with syntax-highlighted code blocks.
 pub fn to_html(markdown: &str) -> String {
-    let ss = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
-
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+    options.insert(Options::ENABLE_SMART_PUNCTUATION);
 
     let parser = Parser::new_ext(markdown, options);
 
@@ -37,7 +51,7 @@ pub fn to_html(markdown: &str) -> String {
             }
             pulldown_cmark::Event::End(pulldown_cmark::Tag::CodeBlock(_)) if in_code => {
                 in_code = false;
-                let highlighted = highlight(&code_buf, &code_lang, &ss, &ts);
+                let highlighted = highlight(&code_buf, &code_lang);
                 events.push(pulldown_cmark::Event::Html(
                     format!(
                         r#"<pre><code class="language-{}">{}</code></pre>"#,
@@ -54,7 +68,8 @@ pub fn to_html(markdown: &str) -> String {
         }
     }
 
-    let mut html_out = String::new();
+    // Pre-allocate based on input size
+    let mut html_out = String::with_capacity(markdown.len() * 2);
     html::push_html(&mut html_out, events.into_iter());
     html_out
 }
@@ -103,18 +118,21 @@ strong {{ color:#e6edf3; }}
     )
 }
 
-fn highlight(code: &str, lang: &str, ss: &SyntaxSet, ts: &ThemeSet) -> String {
-    let syntax = ss
+// ─── Internal ──────────────────────────────────────────────────────
+
+fn highlight(code: &str, lang: &str) -> String {
+    let syntax = ss()
         .find_syntax_by_token(lang)
-        .unwrap_or_else(|| ss.find_syntax_plain_text());
-    let theme = &ts.themes["base16-ocean.dark"];
+        .unwrap_or_else(|| ss().find_syntax_plain_text());
+    let theme = &ts().themes["base16-ocean.dark"];
     let mut h = HighlightLines::new(syntax, theme);
-    let mut out = String::new();
+    let mut out = String::with_capacity(code.len() * 2);
 
     for line in LinesWithEndings::from(code) {
-        let ranges = h.highlight_line(line, ss).unwrap_or_default();
-        let html = styled_line_to_highlighted_html(&ranges, IncludeBackground::No).unwrap_or_default();
-        out.push_str(&html);
+        let ranges = h.highlight_line(line, ss()).unwrap_or_default();
+        let line_html =
+            styled_line_to_highlighted_html(&ranges, IncludeBackground::No).unwrap_or_default();
+        out.push_str(&line_html);
     }
     out
 }

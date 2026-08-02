@@ -43,6 +43,8 @@ fn main() {
             // Settings
             commands::editor::get_settings,
             commands::editor::save_settings,
+            // External change detection
+            commands::editor::check_external_change,
         ])
         .run(tauri::generate_context!())
         .expect("OneMarkdown failed to start");

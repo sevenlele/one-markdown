@@ -6,6 +6,7 @@ const { open, save } = window.__TAURI__.dialog;
 let currentPath = '';
 let isModified = false;
 let renderTimer = null;
+let undoTimer = null;
 
 // ─── DOM ──────────────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -30,8 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
   bindAI();
   bindResizer();
   bindShortcuts();
+  bindWindowClose();
 
-  // Welcome content
   editor.value = `# Welcome to OneMarkdown
 
 > Open, write, publish. One file is all you need.
@@ -68,6 +69,8 @@ fn main() {
 | Ctrl+L | AI Assistant |
 | Ctrl+B | Bold |
 | Ctrl+I | Italic |
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z | Redo |
 
 ---
 
@@ -90,23 +93,23 @@ function bindEditor() {
   editor.addEventListener('click', updateCursorPos);
   editor.addEventListener('keyup', updateCursorPos);
 
-  // Tab key
+  // Tab key — preserve undo history by using execCommand
   editor.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
-      const s = editor.selectionStart;
-      const end = editor.selectionEnd;
+      // execCommand preserves undo stack
       if (e.shiftKey) {
+        // Unindent: remove up to 4 spaces from line start
+        const s = editor.selectionStart;
         const ls = editor.value.lastIndexOf('\n', s - 1) + 1;
-        if (editor.value.substring(ls, ls + 4) === '    ') {
-          editor.value = editor.value.slice(0, ls) + editor.value.slice(ls + 4);
-          editor.selectionStart = editor.selectionEnd = Math.max(ls, s - 4);
+        const lineStart = editor.value.substring(ls, ls + 4);
+        if (lineStart === '    ') {
+          editor.setSelectionRange(ls, ls + 4);
+          document.execCommand('insertText', false, '');
         }
       } else {
-        editor.value = editor.value.slice(0, s) + '    ' + editor.value.slice(end);
-        editor.selectionStart = editor.selectionEnd = s + 4;
+        document.execCommand('insertText', false, '    ');
       }
-      editor.dispatchEvent(new Event('input'));
     }
   });
 
@@ -126,11 +129,10 @@ function bindEditor() {
               imageData: base64,
               mimeType: item.type,
             });
-            insertAtCursor(result.markdownRef);
+            insertText(result.markdownRef);
           } catch (err) {
             console.error('Image paste error:', err);
-            // Fallback: inline base64
-            insertAtCursor(`![image](${reader.result})`);
+            insertText(`![image](${reader.result})`);
           }
         };
         reader.readAsDataURL(file);
@@ -171,15 +173,15 @@ function bindToolbar() {
     sel.includes('\n') ? wrap('```\n', '\n```') : wrap('`', '`');
   };
   $('#btn-link').onclick  = insertLink;
-  $('#btn-image').onclick = () => insertAtCursor('![alt](url)');
+  $('#btn-image').onclick = () => insertText('![alt](url)');
   $('#btn-h1').onclick    = () => linePrefix('# ');
   $('#btn-h2').onclick    = () => linePrefix('## ');
   $('#btn-h3').onclick    = () => linePrefix('### ');
   $('#btn-list').onclick  = () => linePrefix('- ');
   $('#btn-olist').onclick = () => linePrefix('1. ');
   $('#btn-quote').onclick = () => linePrefix('> ');
-  $('#btn-hr').onclick    = () => insertAtCursor('\n---\n');
-  $('#btn-table').onclick = () => insertAtCursor('\n| Header | Header |\n|--------|--------|\n| Cell   | Cell   |\n');
+  $('#btn-hr').onclick    = () => insertText('\n---\n');
+  $('#btn-table').onclick = () => insertText('\n| Header | Header |\n|--------|--------|\n| Cell   | Cell   |\n');
 }
 
 // ─── AI ───────────────────────────────────────────────────────────
@@ -241,6 +243,27 @@ function bindShortcuts() {
       case 'k': e.preventDefault(); insertLink(); break;
       case 'e': e.preventDefault(); wrap('`', '`'); break;
       case 'l': e.preventDefault(); aiPanel.classList.toggle('hidden'); break;
+      // Ctrl+Z / Ctrl+Shift+Z — let browser handle undo/redo natively
+      // Ctrl+Enter — insert newline below
+      case 'Enter':
+        if (mod) {
+          e.preventDefault();
+          const pos = editor.selectionEnd;
+          const rest = editor.value.slice(pos);
+          const nextLine = rest.startsWith('\n') ? '' : '\n';
+          insertText(nextLine + '\n');
+        }
+        break;
+    }
+  });
+}
+
+// ─── Window close protection ──────────────────────────────────────
+function bindWindowClose() {
+  window.addEventListener('beforeunload', (e) => {
+    if (isModified) {
+      e.preventDefault();
+      e.returnValue = '';
     }
   });
 }
@@ -320,38 +343,49 @@ async function exportHtml() {
   }
 }
 
-// ─── Text helpers ─────────────────────────────────────────────────
+// ─── Text helpers (use execCommand to preserve undo stack) ─────────
 function wrap(before, after) {
   const s = editor.selectionStart;
   const e = editor.selectionEnd;
   const sel = editor.value.substring(s, e);
-  editor.value = editor.value.slice(0, s) + before + sel + after + editor.value.slice(e);
-  editor.selectionStart = sel ? s : s + before.length;
-  editor.selectionEnd = sel ? s + before.length + sel.length + after.length : s + before.length;
+
+  // Use execCommand to preserve undo history
   editor.focus();
+  const replacement = before + (sel || '') + after;
+  document.execCommand('insertText', false, replacement);
+
+  // Adjust selection
+  if (!sel) {
+    editor.selectionStart = editor.selectionEnd = s + before.length;
+  }
   editor.dispatchEvent(new Event('input'));
 }
 
-function insertAtCursor(text) {
-  const s = editor.selectionStart;
-  editor.value = editor.value.slice(0, s) + text + editor.value.slice(editor.selectionEnd);
-  editor.selectionStart = editor.selectionEnd = s + text.length;
+function insertText(text) {
   editor.focus();
+  document.execCommand('insertText', false, text);
   editor.dispatchEvent(new Event('input'));
 }
 
 function linePrefix(prefix) {
   const s = editor.selectionStart;
   const ls = editor.value.lastIndexOf('\n', s - 1) + 1;
-  editor.value = editor.value.slice(0, ls) + prefix + editor.value.slice(ls);
-  editor.selectionStart = editor.selectionEnd = s + prefix.length;
-  editor.focus();
+  const currentLine = editor.value.substring(ls);
+
+  // Check if line already has this prefix (toggle off)
+  if (currentLine.startsWith(prefix)) {
+    editor.setSelectionRange(ls, ls + prefix.length);
+    document.execCommand('delete', false);
+  } else {
+    editor.setSelectionRange(ls, ls);
+    document.execCommand('insertText', false, prefix);
+  }
   editor.dispatchEvent(new Event('input'));
 }
 
 function insertLink() {
   const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-  sel ? wrap('[', '](url)') : insertAtCursor('[text](url)');
+  sel ? wrap('[', '](url)') : insertText('[text](url)');
 }
 
 // ─── Resizer ──────────────────────────────────────────────────────
