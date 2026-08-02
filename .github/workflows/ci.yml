@@ -27,7 +27,7 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2"
+        run: cargo install tauri-cli --version "^2" --locked
 
       - name: Check formatting
         run: cargo fmt --check
@@ -38,5 +38,5 @@ jobs:
       - name: Run tests
         run: cargo test
 
-      - name: Build check (no bundle)
+      - name: Build check
         run: cargo tauri build --debug --no-bundle
