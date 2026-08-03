@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicklasxyz/tauri/tauri-v2/crates/tauri-cli/schema.json",
   "productName": "OneMarkdown",
   "version": "0.2.0",
   "identifier": "com.onemarkdown.app",

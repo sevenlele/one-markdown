@@ -221,11 +221,9 @@ pub async fn save_pasted_image(
     mime_type: String,
     state: tauri::State<'_, Mutex<EditorState>>,
 ) -> Result<assets::SavedImage, String> {
-    let bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &image_data,
-    )
-    .map_err(|e| e.to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&image_data)
+        .map_err(|e| e.to_string())?;
 
     let (doc_path, strategy) = {
         let s = state.lock().map_err(|e| e.to_string())?;
