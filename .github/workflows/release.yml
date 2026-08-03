@@ -39,6 +39,8 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -47,57 +49,14 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2"
-
       - name: Build Tauri app
-        run: cargo tauri build --target ${{ matrix.target }}
+        uses: tauri-apps/tauri-action@v0
         env:
-          # Needed for macOS code signing (optional)
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+          GITHUB_TOKEN: *** secrets.GITHUB_TOKEN }}
         with:
-          name: onemarkdown-${{ matrix.label }}
-          path: |
-            target/*/release/bundle/**/*.dmg
-            target/*/release/bundle/**/*.app
-            target/*/release/bundle/**/*.msi
-            target/*/release/bundle/**/*.exe
-            target/*/release/bundle/**/*.deb
-            target/*/release/bundle/**/*.rpm
-            target/*/release/bundle/**/*.AppImage
-          if-no-files-found: ignore
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: List artifacts
-        run: find artifacts -type f | head -20
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: 'OneMarkdown ${{ github.ref_name }}'
-          draft: true
-          prerelease: false
-          body: |
+          tagName: ${{ github.ref_name }}
+          releaseName: 'OneMarkdown ${{ github.ref_name }}'
+          releaseBody: |
             ## OneMarkdown ${{ github.ref_name }}
 
             **Single-file Markdown editor with AI.** Open, write, publish.
@@ -112,6 +71,6 @@ jobs:
 
             ### What's New
             See [CHANGELOG](CHANGELOG.md) for details.
-          files: artifacts/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
