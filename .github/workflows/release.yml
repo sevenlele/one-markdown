@@ -88,30 +88,40 @@ jobs:
       - name: List files
         run: find artifacts -type f | sort
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: 'OneMarkdown ${{ github.ref_name }}'
-          draft: true
-          prerelease: false
-          body: |
-            ## OneMarkdown ${{ github.ref_name }}
-
-            **Single-file Markdown editor with AI.** Open, write, publish.
-
-            ### Features
-            - Single-file Markdown workflow (no Vault)
-            - AI assistant (explain/rewrite/translate/summarize)
-            - KaTeX math, Mermaid diagrams, Callouts, TOC
-            - Light/dark themes
-            - ~5MB install, <100ms startup
-          files: |
-            artifacts/**/*.dmg
-            artifacts/**/*.deb
-            artifacts/**/*.rpm
-            artifacts/**/*.AppImage
-            artifacts/**/*.msi
-            artifacts/**/*.exe
+      - name: Create release and upload
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -ex
+          TAG="${GITHUB_REF#refs/tags/}"
+          
+          # Create release
+          RELEASE_ID=$(curl -sf -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" \
+            -d "{\"tag_name\":\"$TAG\",\"name\":\"OneMarkdown $TAG\",\"draft\":true,\"body\":\"Release $TAG\"}" \
+            | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+          
+          echo "Release ID: $RELEASE_ID"
+          
+          # Get upload URL
+          UPLOAD_URL=$(curl -sf \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            | python3 -c "import json,sys;print(json.load(sys.stdin)['upload_url'].replace('{?name,label}',''))")
+          
+          echo "Upload URL: $UPLOAD_URL"
+          
+          # Upload each file
+          for f in $(find artifacts -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.exe" \)); do
+            NAME=$(basename "$f")
+            echo "Uploading $NAME..."
+            curl -sf -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "${UPLOAD_URL}?name=$NAME" || echo "Failed: $NAME"
+          done
+          
+          echo "Done!"
