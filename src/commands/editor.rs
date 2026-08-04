@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 use std::thread;
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 // ─── State ────────────────────────────────────────────────────────────
 

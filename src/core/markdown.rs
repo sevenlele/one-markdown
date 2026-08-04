@@ -49,7 +49,7 @@ pub fn to_html(markdown: &str) -> String {
                 };
                 code_buf.clear();
             }
-            pulldown_cmark::Event::End(pulldown_cmark::Tag::CodeBlock(_)) if in_code => {
+            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::CodeBlock) if in_code => {
                 in_code = false;
                 let highlighted = highlight(&code_buf, &code_lang);
                 let html = format!(
