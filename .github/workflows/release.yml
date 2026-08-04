@@ -54,21 +54,22 @@ jobs:
 
       - name: Build
         run: cargo tauri build --target ${{ matrix.target }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p upload
+          find target/${{ matrix.target }}/release/bundle -type f \( \
+            -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o \
+            -name "*.AppImage" -o -name "*.msi" -o -name "*.exe" \
+          \) -exec cp {} upload/ \; 2>/dev/null || true
+          ls -la upload/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: onemarkdown-${{ matrix.label }}
-          path: |
-            target/${{ matrix.target }}/release/bundle/**/*.dmg
-            target/${{ matrix.target }}/release/bundle/**/*.app
-            target/${{ matrix.target }}/release/bundle/**/*.msi
-            target/${{ matrix.target }}/release/bundle/**/*.exe
-            target/${{ matrix.target }}/release/bundle/**/*.deb
-            target/${{ matrix.target }}/release/bundle/**/*.rpm
-            target/${{ matrix.target }}/release/bundle/**/*.AppImage
+          path: upload/
           if-no-files-found: warn
 
   release:
@@ -85,39 +86,44 @@ jobs:
           merge-multiple: true
 
       - name: List artifacts
-        run: find artifacts -type f | sort
+        run: |
+          echo "=== Downloaded files ==="
+          find artifacts -type f | sort
+          echo "=== Total size ==="
+          du -sh artifacts/
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          name: 'OneMarkdown ${{ github.ref_name }}'
-          draft: true
-          prerelease: false
-          body: |
-            ## OneMarkdown ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Creating release for tag: $TAG"
+          
+          # Collect all release files
+          FILES=$(find artifacts -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.exe" \) | sort)
+          echo "Release files:"
+          echo "$FILES"
+          
+          if [ -z "$FILES" ]; then
+            echo "WARNING: No release files found!"
+            exit 1
+          fi
+          
+          # Create release with gh CLI
+          gh release create "$TAG" \
+            --repo "sevenlele/one-markdown" \
+            --title "OneMarkdown $TAG" \
+            --notes "## OneMarkdown $TAG
 
-            **Single-file Markdown editor with AI.** Open, write, publish.
+          **Single-file Markdown editor with AI.** Open, write, publish.
 
-            ### Downloads
-            - **macOS (Apple Silicon):** `.dmg` (aarch64)
-            - **macOS (Intel):** `.dmg` (x64)
-            - **Windows:** `.msi` or `-setup.exe`
-            - **Linux (Debian/Ubuntu):** `.deb`
-            - **Linux (Fedora):** `.rpm`
-            - **Linux (Universal):** `.AppImage`
-
-            ### Features
-            - Single-file Markdown workflow (no Vault needed)
-            - AI assistant (explain, rewrite, translate, summarize)
-            - KaTeX math, Mermaid diagrams, Callouts
-            - Light/dark themes
-            - ~5MB install, <100ms startup
-          files: |
-            artifacts/**/*.dmg
-            artifacts/**/*.deb
-            artifacts/**/*.rpm
-            artifacts/**/*.AppImage
-            artifacts/**/*.msi
-            artifacts/**/*.exe
+          ### Features
+          - Single-file Markdown workflow (no Vault needed)
+          - AI assistant (explain, rewrite, translate, summarize)
+          - KaTeX math, Mermaid diagrams, Callouts
+          - Light/dark themes
+          - ~5MB install, <100ms startup" \
+            --draft \
+            $FILES
+          
+          echo "Release created!"
