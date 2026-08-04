@@ -1,5 +1,6 @@
 use crate::core::{assets, frontmatter, markdown, watcher};
 use anyhow::Result;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
