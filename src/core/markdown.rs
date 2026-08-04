@@ -34,7 +34,7 @@ pub fn to_html(markdown: &str) -> String {
     let parser = Parser::new_ext(markdown, options);
 
     // Process code blocks with syntax highlighting
-    let mut events = Vec::new();
+    let mut events: Vec<pulldown_cmark::Event> = Vec::new();
     let mut in_code = false;
     let mut code_lang = String::new();
     let mut code_buf = String::new();
@@ -52,19 +52,17 @@ pub fn to_html(markdown: &str) -> String {
             pulldown_cmark::Event::End(pulldown_cmark::Tag::CodeBlock(_)) if in_code => {
                 in_code = false;
                 let highlighted = highlight(&code_buf, &code_lang);
-                events.push(pulldown_cmark::Event::Html(
-                    format!(
-                        r#"<pre><code class="language-{}">{}</code></pre>"#,
-                        code_lang, highlighted
-                    )
-                    .into(),
-                ));
+                let html = format!(
+                    r#"<pre><code class="language-{}">{}</code></pre>"#,
+                    code_lang, highlighted
+                );
+                events.push(pulldown_cmark::Event::Html(html.into()));
             }
             pulldown_cmark::Event::Text(ref t) if in_code => {
                 code_buf.push_str(t);
             }
             _ if in_code => {}
-            _ => events.push(event),
+            _ => events.push(event.to_owned()),
         }
     }
 
