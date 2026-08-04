@@ -349,6 +349,45 @@ html,body{height:100%;overflow:hidden;font-family:var(--sans);background:var(--b
 /* ─── Selection ────────────────────────────────────────── */
 #editor::selection,#preview ::selection{background:rgba(59,130,246,.28)}
 
+/* ─── Inline AI Edit ──────────────────────────────────── */
+.inline-ai-box{
+  position:fixed;z-index:500;
+  background:var(--bg2);border:1px solid var(--accent);
+  border-radius:8px;padding:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);
+  min-width:300px;max-width:400px;
+}
+.inline-ai-header{font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px}
+.inline-ai-row{display:flex;gap:4px}
+.inline-ai-input{
+  flex:1;height:28px;padding:0 8px;
+  border:1px solid var(--border);background:var(--bg);color:var(--text);
+  border-radius:4px;font-size:12px;font-family:var(--sans);outline:none;
+}
+.inline-ai-input:focus{border-color:var(--accent)}
+.inline-ai-go{
+  padding:0 10px;height:28px;border:none;background:var(--accent);
+  color:#fff;border-radius:4px;font-size:12px;cursor:pointer;
+}
+.inline-ai-go:hover{opacity:.85}
+.inline-ai-go:disabled{opacity:.5;cursor:not-allowed}
+.inline-ai-cancel{
+  width:28px;height:28px;border:none;background:transparent;
+  color:var(--text2);border-radius:4px;font-size:14px;cursor:pointer;
+}
+.inline-ai-cancel:hover{background:var(--bg3)}
+.inline-ai-status{font-size:11px;color:var(--text2);margin-top:4px;min-height:16px}
+
+/* ─── Footnotes ─────────────────────────────────────────── */
+.footnotes{margin-top:2em;font-size:90%}
+.footnotes hr{border:none;border-top:1px solid var(--border);margin-bottom:1em}
+.footnotes ol{padding-left:1.5em}
+.footnotes li{margin-bottom:.4em;color:var(--text2)}
+.footnote-backref{color:var(--accent);text-decoration:none;margin-left:4px}
+.footnote-backref:hover{text-decoration:underline}
+sup a{color:var(--accent);text-decoration:none}
+sup a:hover{text-decoration:underline}
+
 /* ─── Print ──────────────────────────────────────────────── */
 @media print{
   body{background:#fff;color:#1f2328}

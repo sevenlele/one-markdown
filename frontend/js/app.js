@@ -350,12 +350,62 @@ async function renderPreview() {
     const res = await invoke('render_markdown', { content: editor.value });
     preview.innerHTML = res.html;
     processCallouts();
+    processFootnotes(preview);
     renderMath(preview);
     generateTOC(preview);
   } catch (err) {
     preview.innerHTML = `<p style="color:var(--red)">Render error: ${err}</p>`;
   }
   await renderMermaidDiagrams();
+}
+
+// ─── Footnotes processing ───────────────────────────────────────
+function processFootnotes(container) {
+  // Find footnote references: <sup><a href="#fn1">1</a></sup>
+  // pulldown-cmark generates: <sup class="footnote-reference"><a href="#fn1">1</a></sup>
+  // Also handle raw markdown: text[^1] rendered as sup with [^1]
+
+  const refs = container.querySelectorAll('sup a[href^="#fn"]');
+  if (refs.length === 0) return;
+
+  // Find footnote definitions (usually at the bottom)
+  const allParagraphs = container.querySelectorAll('p');
+  const fnDefs = [];
+
+  allParagraphs.forEach(p => {
+    const text = p.textContent;
+    const match = text.match(/^\[\^(\w+)\]:\s*(.*)/);
+    if (match) {
+      const id = match[1];
+      const content = match[2];
+      fnDefs.push({ id, content, element: p });
+    }
+  });
+
+  if (fnDefs.length === 0) return;
+
+  // Build footnotes section
+  const section = document.createElement('div');
+  section.className = 'footnotes';
+  section.innerHTML = '<hr><ol class="footnotes-list">' +
+    fnDefs.map(fn =>
+      `<li id="fn-${fn.id}">${fn.content} <a href="#fnref-${fn.id}" class="footnote-backref">↩</a></li>`
+    ).join('') +
+    '</ol>';
+
+  // Remove original definitions
+  fnDefs.forEach(fn => fn.element.remove());
+
+  // Add footnotes section at the end
+  container.appendChild(section);
+
+  // Update references with proper IDs and links
+  refs.forEach(ref => {
+    const href = ref.getAttribute('href');
+    const num = href.replace('#fn', '');
+    ref.setAttribute('href', `#fn-${num}`);
+    ref.parentElement.id = `fnref-${num}`;
+  });
 }
 
 // ─── KaTeX math rendering ──────────────────────────────────────
@@ -849,6 +899,7 @@ async function loadSettingsIntoUI() {
 // ─── AI ───────────────────────────────────────────────────────────
 function bindAI() {
   $('#btn-ai').onclick = () => aiPanel.classList.toggle('hidden');
+  $('#btn-ai-edit').onclick = showInlineAiEdit;
   $('#ai-close').onclick = () => {
     if (aiStreaming) stopAiStream();
     aiPanel.classList.add('hidden');
@@ -937,6 +988,76 @@ async function handleAiAction(action) {
   }
 }
 
+// Inline AI Edit - shows a small input near the selection
+function showInlineAiEdit() {
+  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+  if (!sel) {
+    alert('Select some text first, then click AI Edit.');
+    return;
+  }
+
+  // Remove any existing inline edit box
+  const existing = document.querySelector('.inline-ai-box');
+  if (existing) existing.remove();
+
+  // Get selection position relative to the editor
+  const editorRect = editor.getBoundingClientRect();
+  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight);
+  const linesBefore = editor.value.substring(0, editor.selectionStart).split('\n').length;
+  const scrollTop = editor.scrollTop;
+  const top = editorRect.top + (linesBefore * lineHeight) - scrollTop + 20;
+  const left = editorRect.left + 20;
+
+  // Create inline input box
+  const box = document.createElement('div');
+  box.className = 'inline-ai-box';
+  box.style.top = Math.min(top, editorRect.bottom - 60) + 'px';
+  box.style.left = Math.min(left, editorRect.right - 320) + 'px';
+  box.innerHTML = `
+    <div class="inline-ai-header">✨ AI Edit</div>
+    <div class="inline-ai-row">
+      <input type="text" class="inline-ai-input" placeholder="e.g. make it shorter, fix grammar...">
+      <button class="inline-ai-go">Go</button>
+      <button class="inline-ai-cancel">✕</button>
+    </div>
+    <div class="inline-ai-status"></div>
+  `;
+  document.body.appendChild(box);
+
+  const input = box.querySelector('.inline-ai-input');
+  const goBtn = box.querySelector('.inline-ai-go');
+  const cancelBtn = box.querySelector('.inline-ai-cancel');
+  const statusEl = box.querySelector('.inline-ai-status');
+
+  input.focus();
+
+  async function doEdit() {
+    const instruction = input.value.trim();
+    if (!instruction) return;
+
+    statusEl.textContent = '⏳ AI is working...';
+    goBtn.disabled = true;
+
+    try {
+      const result = await invoke('ai_rewrite', { text: sel, instruction });
+      editor.focus();
+      editor.setSelectionRange(editor.selectionStart, editor.selectionEnd);
+      document.execCommand('insertText', false, result.text);
+      box.remove();
+    } catch (err) {
+      statusEl.textContent = `❌ ${err}`;
+      goBtn.disabled = false;
+    }
+  }
+
+  goBtn.onclick = doEdit;
+  cancelBtn.onclick = () => box.remove();
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doEdit();
+    if (e.key === 'Escape') box.remove();
+  });
+}
+
 // ─── Drag & Drop ──────────────────────────────────────────────────
 function bindDragDrop() {
   document.addEventListener('dragover', (e) => {
@@ -988,6 +1109,7 @@ function bindShortcuts() {
       case 'k': e.preventDefault(); insertLink(); break;
       case 'e': e.preventDefault(); wrap('`', '`'); break;
       case 'l': e.preventDefault(); aiPanel.classList.toggle('hidden'); break;
+      case 'L': e.preventDefault(); showInlineAiEdit(); break;
       case 'p': e.preventDefault(); printPreview(); break;
       case 'f':
         e.preventDefault();
