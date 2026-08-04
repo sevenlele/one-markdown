@@ -114,4 +114,10 @@ jobs:
             - KaTeX math, Mermaid diagrams, Callouts
             - Light/dark themes
             - ~5MB install, <100ms startup
-          files: artifacts/**/*
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.AppImage
+            artifacts/**/*.msi
+            artifacts/**/*.exe
