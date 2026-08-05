@@ -32,7 +32,7 @@ struct ChatRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChatMessage {
+pub struct ChatMessage {
     role: String,
     content: String,
 }
