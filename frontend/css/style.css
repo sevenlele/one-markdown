@@ -227,6 +227,14 @@ html,body{height:100%;overflow:hidden;font-family:var(--sans);background:var(--b
 .ai-token-count{
   font-size:10px;font-weight:400;opacity:.6;margin-left:6px;
 }
+.ai-chat-copy{
+  position:absolute;top:4px;right:4px;
+  background:transparent;border:none;cursor:pointer;
+  font-size:12px;opacity:.4;transition:opacity .15s;
+  padding:2px 4px;border-radius:3px;
+}
+.ai-chat-copy:hover{opacity:1;background:var(--bg4)}
+.ai-chat-msg{position:relative}
 
 /* ─── Main ─────────────────────────────────────────────── */
 #main{display:flex;height:calc(100vh - 40px - 24px)}

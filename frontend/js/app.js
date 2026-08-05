@@ -937,6 +937,11 @@ function bindAI() {
   chatSend.onclick = sendChatMessage;
   chatStop.onclick = stopAiStream;
 
+  $('#ai-chat-clear').onclick = () => {
+    aiChatHistory = [];
+    $('#ai-chat-messages').innerHTML = '';
+  };
+
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -1049,6 +1054,19 @@ function renderChatMessage(role, content) {
   const div = document.createElement('div');
   div.className = `ai-chat-msg ${role}`;
   div.textContent = content;
+  if (role === 'assistant' && content) {
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'ai-chat-copy';
+    copyBtn.textContent = '📋';
+    copyBtn.title = 'Copy to clipboard';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(div.textContent.replace('📋', '')).then(() => {
+        copyBtn.textContent = '✓';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+      });
+    };
+    div.appendChild(copyBtn);
+  }
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   return div;

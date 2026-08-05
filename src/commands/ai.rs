@@ -123,35 +123,70 @@ pub async fn ai_fetch_url(url: String) -> Result<String, String> {
 }
 
 fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len() / 2);
+    let bytes = html.as_bytes();
+    let len = bytes.len();
+    let mut result = String::with_capacity(len / 2);
+    let mut i = 0;
     let mut in_tag = false;
-    let mut in_script = false;
-    let mut in_style = false;
+    let mut skip_content = false; // for <script>/<style>
+    let mut tag_buf = String::new();
 
-    for ch in html.chars() {
-        match ch {
-            '<' => {
-                in_tag = true;
-                // Check for script/style open tags
-                let lower: String = html[html.len().min(result.len())..]
-                    .chars()
-                    .take(20)
-                    .collect::<String>()
-                    .to_lowercase();
-                if lower.starts_with("<script") { in_script = true; }
-                if lower.starts_with("<style") { in_style = true; }
-            }
-            '>' => {
+    while i < len {
+        if !in_tag && bytes[i] == b'<' {
+            // Start of a tag
+            in_tag = true;
+            tag_buf.clear();
+        } else if in_tag {
+            if bytes[i] == b'>' {
                 in_tag = false;
-                let lower: String = result.chars().rev().take(10).collect::<String>().chars().rev().collect::<String>().to_lowercase();
-                if lower.ends_with("/script") || lower.ends_with("</script") { in_script = false; }
-                if lower.ends_with("/style") || lower.ends_with("</style") { in_style = false; }
+                let lower = tag_buf.to_lowercase();
+                let trimmed = lower.trim_start();
+                if trimmed.starts_with("script") || trimmed.starts_with("style") {
+                    skip_content = true;
+                } else if trimmed.starts_with("/script") || trimmed.starts_with("/style") {
+                    skip_content = false;
+                } else if !skip_content {
+                    // Convert block elements to newlines
+                    if trimmed.starts_with("br") || trimmed.starts_with("/p")
+                        || trimmed.starts_with("/div") || trimmed.starts_with("/h")
+                        || trimmed.starts_with("/li") || trimmed.starts_with("/tr")
+                    {
+                        result.push('\n');
+                    } else if trimmed.starts_with("p") || trimmed.starts_with("div")
+                        || trimmed.starts_with("h") || trimmed.starts_with("li")
+                        || trimmed.starts_with("tr") || trimmed.starts_with("blockquote")
+                    {
+                        if !result.ends_with('\n') {
+                            result.push('\n');
+                        }
+                    }
+                }
+            } else {
+                tag_buf.push(bytes[i] as char);
             }
-            _ if !in_tag && !in_script && !in_style => {
-                result.push(ch);
+        } else if !skip_content {
+            // Decode common HTML entities
+            if bytes[i] == b'&' {
+                if html[i..].starts_with("&amp;") {
+                    result.push('&');
+                    i += 5; continue;
+                } else if html[i..].starts_with("&lt;") {
+                    result.push('<');
+                    i += 4; continue;
+                } else if html[i..].starts_with("&gt;") {
+                    result.push('>');
+                    i += 4; continue;
+                } else if html[i..].starts_with("&quot;") {
+                    result.push('"');
+                    i += 6; continue;
+                } else if html[i..].starts_with("&nbsp;") {
+                    result.push(' ');
+                    i += 6; continue;
+                }
             }
-            _ => {}
+            result.push(bytes[i] as char);
         }
+        i += 1;
     }
 
     // Collapse whitespace
