@@ -30,32 +30,7 @@ jobs:
         run: cargo install tauri-cli --version "^2"
 
       - name: Clippy
-        run: |
-          # Run clippy with JSON output to extract warnings
-          cargo clippy --message-format=json 2>/dev/null | python3 -c "
-          import json, sys
-          warnings = []
-          for line in sys.stdin:
-              try:
-                  msg = json.loads(line)
-                  if msg.get('reason') == 'compiler-message':
-                      m = msg['message']
-                      if m.get('level') in ('warning', 'error'):
-                          spans = m.get('spans', [])
-                          if spans:
-                              s = spans[0]
-                              fname = s.get('file_name', '?')
-                              line_no = s.get('line_start', 0)
-                              text = m['message']
-                              lint = m.get('code', {}).get('code', '')
-                              print(f'::warning file={fname},line={line_no},title={lint}::{text}')
-                              warnings.append(text)
-              except:
-                  pass
-          if warnings:
-              print(f'\nFound {len(warnings)} clippy warning(s)', file=sys.stderr)
-              sys.exit(1)
-          "
+        run: cargo clippy -- -D warnings
 
       - name: Test
         run: cargo test

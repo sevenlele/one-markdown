@@ -73,6 +73,7 @@ pub fn save_image(
 }
 
 /// Resolve an image path (which may be relative to the doc) to an absolute path.
+#[allow(dead_code)]
 pub fn resolve_image_path(doc_path: &str, image_ref: &str) -> Option<PathBuf> {
     if image_ref.starts_with("data:") {
         return None; // base64, no file

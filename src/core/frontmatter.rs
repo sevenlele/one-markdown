@@ -19,6 +19,7 @@ pub struct Frontmatter {
 pub struct ParsedDocument {
     pub frontmatter: Frontmatter,
     pub body: String,
+    #[allow(dead_code)]
     pub has_frontmatter: bool,
 }
 
@@ -70,6 +71,7 @@ pub fn parse(content: &str) -> ParsedDocument {
 }
 
 /// Serialize a document back to the single-file format.
+#[allow(dead_code)]
 pub fn serialize(frontmatter: &Frontmatter, body: &str) -> String {
     // Only write frontmatter if there's meaningful content
     let has_data = frontmatter.title.is_some()
