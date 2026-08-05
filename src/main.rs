@@ -49,10 +49,14 @@ fn main() {
             commands::ai::ai_continue_stream,
             commands::ai::ai_chat_stream,
             commands::ai::ai_chat,
+            commands::ai::ai_count_tokens,
+            commands::ai::ai_fetch_url,
             commands::ai::ai_stream_cancel,
             // Settings
             commands::editor::get_settings,
             commands::editor::save_settings,
+            commands::editor::get_ai_stats,
+            commands::editor::record_ai_usage,
             // External change detection
             commands::editor::check_external_change,
             commands::editor::start_watching,

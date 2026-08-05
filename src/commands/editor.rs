@@ -17,6 +17,16 @@ pub struct EditorState {
     pub settings: Settings,
     pub watch_stop: Option<std::sync::mpsc::Sender<()>>,
     pub _watcher: Option<watcher::FileWatcher>,
+    pub ai_stats: AiStats,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStats {
+    pub total_calls: u32,
+    pub total_prompt_tokens: u32,
+    pub total_response_tokens: u32,
+    pub calls_by_action: std::collections::HashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +69,7 @@ impl EditorState {
             settings,
             watch_stop: None,
             _watcher: None,
+            ai_stats: AiStats::default(),
         }
     }
 }
@@ -249,6 +260,27 @@ pub async fn save_pasted_image(
 pub fn get_settings(state: tauri::State<Mutex<EditorState>>) -> Result<Settings, String> {
     let s = state.lock().map_err(|e| e.to_string())?;
     Ok(s.settings.clone())
+}
+
+#[tauri::command]
+pub fn get_ai_stats(state: tauri::State<Mutex<EditorState>>) -> Result<AiStats, String> {
+    let s = state.lock().map_err(|e| e.to_string())?;
+    Ok(s.ai_stats.clone())
+}
+
+#[tauri::command]
+pub fn record_ai_usage(
+    action: String,
+    prompt_tokens: u32,
+    response_tokens: u32,
+    state: tauri::State<Mutex<EditorState>>,
+) -> Result<(), String> {
+    let mut s = state.lock().map_err(|e| e.to_string())?;
+    s.ai_stats.total_calls += 1;
+    s.ai_stats.total_prompt_tokens += prompt_tokens;
+    s.ai_stats.total_response_tokens += response_tokens;
+    *s.ai_stats.calls_by_action.entry(action).or_insert(0) += 1;
+    Ok(())
 }
 
 #[tauri::command]

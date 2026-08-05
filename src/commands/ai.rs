@@ -21,6 +21,35 @@ fn client() -> &'static Client {
     })
 }
 
+// ─── Token estimation ────────────────────────────────────────────
+
+/// Estimate token count for a text string.
+/// Uses a simple heuristic: ~4 chars per token for ASCII, ~1 char per token for CJK.
+pub fn estimate_tokens(text: &str) -> u32 {
+    let mut count: u32 = 0;
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            count += 1; // will divide by 4 at end for ASCII
+        } else if '\u{4e00}' <= ch && ch <= '\u{9fff}'
+            || '\u{3400}' <= ch && ch <= '\u{4dbf}'
+            || '\u{f900}' <= ch && ch <= '\u{faff}'
+            || '\u{3000}' <= ch && ch <= '\u{303f}'
+            || '\u{ff00}' <= ch && ch <= '\u{ffef}'
+        {
+            count += 4; // CJK = ~1 token each
+        } else {
+            count += 2; // other unicode
+        }
+    }
+    (count + 3) / 4 // round up, ~4 ASCII chars per token
+}
+
+/// Get token count for a given text.
+#[tauri::command]
+pub fn ai_count_tokens(text: String) -> u32 {
+    estimate_tokens(&text)
+}
+
 // ─── Request/Response types ─────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -55,6 +84,79 @@ pub struct AiResult {
 }
 
 // ─── Commands ───────────────────────────────────────────────────────
+
+/// Fetch a URL's text content for use as AI context.
+#[tauri::command]
+pub async fn ai_fetch_url(url: String) -> Result<String, String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL must start with http:// or https://".into());
+    }
+
+    let resp = client()
+        .get(&url)
+        .header("User-Agent", "OneMarkdown/0.2")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch URL: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("URL returned HTTP {}", resp.status()));
+    }
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    // Simple HTML tag stripping — extract visible text
+    let text = strip_html_tags(&body);
+
+    // Truncate to ~8000 chars to avoid huge context
+    let truncated = if text.len() > 8000 {
+        format!("{}\n\n[truncated — {} chars total]", &text[..8000], text.len())
+    } else {
+        text
+    };
+
+    Ok(truncated)
+}
+
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len() / 2);
+    let mut in_tag = false;
+    let mut in_script = false;
+    let mut in_style = false;
+
+    for ch in html.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                // Check for script/style open tags
+                let lower: String = html[html.len().min(result.len())..]
+                    .chars()
+                    .take(20)
+                    .collect::<String>()
+                    .to_lowercase();
+                if lower.starts_with("<script") { in_script = true; }
+                if lower.starts_with("<style") { in_style = true; }
+            }
+            '>' => {
+                in_tag = false;
+                let lower: String = result.chars().rev().take(10).collect::<String>().chars().rev().collect::<String>().to_lowercase();
+                if lower.ends_with("/script") || lower.ends_with("</script") { in_script = false; }
+                if lower.ends_with("/style") || lower.ends_with("</style") { in_style = false; }
+            }
+            _ if !in_tag && !in_script && !in_style => {
+                result.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    // Collapse whitespace
+    result.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
 
 /// Generate a context bundle from the current document.
 #[tauri::command]

@@ -908,8 +908,9 @@ async function loadSettingsIntoUI() {
 function bindAI() {
   $('#btn-ai').onclick = () => {
     aiPanel.classList.toggle('hidden');
-    if (!aiPanel.classList.contains('hidden') && aiChatMode) {
-      $('#ai-chat-input').focus();
+    if (!aiPanel.classList.contains('hidden')) {
+      if (aiChatMode) $('#ai-chat-input').focus();
+      loadAiStats();
     }
   };
   $('#btn-ai-edit').onclick = showInlineAiEdit;
@@ -964,6 +965,9 @@ function bindAI() {
   listen('ai-done', (event) => {
     if (!aiStreaming) return;
     aiStreaming = false;
+    // Record AI usage
+    const responseTokens = Math.ceil(aiStreamText.length / 4);
+    recordUsage(aiChatMode ? 'chat' : 'action', 0, responseTokens);
     if (aiContinuation) {
       finishContinuation(event.payload === 'cancelled');
     } else if (aiChatMode) {
@@ -1074,6 +1078,38 @@ function finishChatStream(cancelled) {
   $('#ai-chat-input').focus();
 }
 
+// ─── Token Count ─────────────────────────────────────────────────
+async function updateTokenCount(text) {
+  if (!text) return;
+  try {
+    const count = await invoke('ai_count_tokens', { text });
+    const el = $('#ai-token-count');
+    if (el) el.textContent = `~${count} tokens`;
+  } catch (err) {
+    // silent
+  }
+}
+
+async function loadAiStats() {
+  try {
+    const stats = await invoke('get_ai_stats');
+    const el = $('#ai-usage-stats');
+    if (el && stats.totalCalls > 0) {
+      el.textContent = `(${stats.totalCalls} calls, ~${stats.totalPromptTokens + stats.totalResponseTokens} tokens)`;
+    }
+  } catch (err) {
+    // silent
+  }
+}
+
+async function recordUsage(action, promptTokens, responseTokens) {
+  try {
+    await invoke('record_ai_usage', { action, promptTokens, responseTokens });
+  } catch (err) {
+    // silent
+  }
+}
+
 function startAiStream() {
   aiStreaming = true;
   aiStreamText = '';
@@ -1101,6 +1137,22 @@ async function handleAiAction(action) {
     }
     return;
   }
+
+  if (action === 'fetch-url') {
+    const url = prompt('Enter URL to fetch as context:');
+    if (!url) return;
+    aiOutput.textContent = `⏳ Fetching ${url}...`;
+    try {
+      const text = await invoke('ai_fetch_url', { url });
+      aiOutput.textContent = `--- ${url} ---\n\n${text}`;
+    } catch (err) {
+      aiOutput.textContent = `❌ ${err}`;
+    }
+    return;
+  }
+
+  // Update token count for selected text
+  updateTokenCount(sel || fullContent);
 
   // Use streaming commands for AI actions
   startAiStream();

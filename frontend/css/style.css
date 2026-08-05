@@ -224,6 +224,9 @@ html,body{height:100%;overflow:hidden;font-family:var(--sans);background:var(--b
 .ai-chat-hint{
   font-size:10px;color:var(--text2);padding:2px 14px 6px;text-align:center;
 }
+.ai-token-count{
+  font-size:10px;font-weight:400;opacity:.6;margin-left:6px;
+}
 
 /* ─── Main ─────────────────────────────────────────────── */
 #main{display:flex;height:calc(100vh - 40px - 24px)}

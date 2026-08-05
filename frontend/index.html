@@ -120,7 +120,7 @@
   <!-- ─── AI Panel (hidden) ───────────────────────────────── -->
   <div id="ai-panel" class="ai-panel hidden">
     <div class="ai-panel-header">
-      <span>✨ AI Assistant</span>
+      <span>✨ AI Assistant <span id="ai-token-count" class="ai-token-count"></span> <span id="ai-usage-stats" class="ai-token-count"></span></span>
       <div style="display:flex;gap:4px;align-items:center">
         <button id="ai-mode-actions" class="tb tb-sm tb-accent" title="Quick Actions">⚡</button>
         <button id="ai-mode-chat" class="tb tb-sm" title="Chat Mode">💬</button>
@@ -135,6 +135,7 @@
         <button class="ai-btn" data-action="translate">🌐 Translate</button>
         <button class="ai-btn" data-action="rewrite">✏️ Rewrite</button>
         <button class="ai-btn" data-action="context">📦 Context Bundle</button>
+        <button class="ai-btn" data-action="fetch-url">🔗 Add URL</button>
       </div>
       <div id="ai-status" class="ai-status hidden">
         <span class="ai-streaming-indicator">⏳ Streaming...</span>
