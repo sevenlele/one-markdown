@@ -122,6 +122,7 @@ pub async fn ai_fetch_url(url: String) -> Result<String, String> {
     Ok(truncated)
 }
 
+#[allow(clippy::all)]
 fn strip_html_tags(html: &str) -> String {
     let bytes = html.as_bytes();
     let len = bytes.len();
