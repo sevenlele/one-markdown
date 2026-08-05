@@ -172,10 +172,10 @@ pub async fn save_file_as(
         .map_err(|e| e.to_string())?;
 
     let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.current_path = Some(path_buf.clone());
     s.recent_files.retain(|p| p != &path_buf);
-    s.recent_files.insert(0, path_buf);
+    s.recent_files.insert(0, path_buf.clone());
     save_recent_files(&s.recent_files);
+    s.current_path = Some(path_buf);
 
     Ok(path)
 }
