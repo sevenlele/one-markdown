@@ -20,7 +20,7 @@
 - [x] **P1: 撤销/重做保护**（wrap/insertAtCursor 摧毁 textarea undo 栈）
 - [x] **P1: 关闭未保存提醒**
 - [ ] **P1: API Key 安全存储**（OS Keychain 或加密）
-- [ ] **P1: CSP 安全策略收紧**
+- [x] **P1: CSP 安全策略收紧**
 - [x] 修复 frontmatter 解析边界情况（`\n---\n` 而非 `\n---`）
 
 **发布：** v0.1.1 patch release
