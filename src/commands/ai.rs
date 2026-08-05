@@ -31,7 +31,7 @@ struct ChatRequest {
     max_tokens: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChatMessage {
     role: String,
     content: String,
