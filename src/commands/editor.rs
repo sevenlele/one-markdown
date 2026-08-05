@@ -121,13 +121,14 @@ pub async fn open_file(
         .unwrap_or_else(|| "Untitled".into());
 
     let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.current_path = Some(path_buf.clone());
 
     // Update recent files (MRU order)
     s.recent_files.retain(|p| p != &path_buf);
-    s.recent_files.insert(0, path_buf);
+    s.recent_files.insert(0, path_buf.clone());
     s.recent_files.truncate(20);
     save_recent_files(&s.recent_files);
+
+    s.current_path = Some(path_buf);
 
     Ok(FileInfo {
         path,
@@ -256,8 +257,8 @@ pub fn save_settings(
     state: tauri::State<Mutex<EditorState>>,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.settings = settings.clone();
     save_settings_to_disk(&settings);
+    s.settings = settings;
     Ok(())
 }
 
