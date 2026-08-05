@@ -989,73 +989,148 @@ async function handleAiAction(action) {
 }
 
 // Inline AI Edit - shows a small input near the selection
+// ─── Inline AI Edit ───────────────────────────────────────────
+let inlineAiBox = null;
+
 function showInlineAiEdit() {
-  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-  if (!sel) {
-    alert('Select some text first, then click AI Edit.');
+  const selStart = editor.selectionStart;
+  const selEnd = editor.selectionEnd;
+  const selText = editor.value.substring(selStart, selEnd);
+
+  if (!selText.trim()) {
+    flashEditorBorder('var(--red)');
     return;
   }
 
-  // Remove any existing inline edit box
-  const existing = document.querySelector('.inline-ai-box');
-  if (existing) existing.remove();
+  removeInlineAiBox();
 
-  // Get selection position relative to the editor
-  const editorRect = editor.getBoundingClientRect();
-  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight);
-  const linesBefore = editor.value.substring(0, editor.selectionStart).split('\n').length;
-  const scrollTop = editor.scrollTop;
-  const top = editorRect.top + (linesBefore * lineHeight) - scrollTop + 20;
-  const left = editorRect.left + 20;
+  // Calculate position near end of selection
+  const pos = getCaretPixelPosition(editor, selEnd);
 
-  // Create inline input box
-  const box = document.createElement('div');
-  box.className = 'inline-ai-box';
-  box.style.top = Math.min(top, editorRect.bottom - 60) + 'px';
-  box.style.left = Math.min(left, editorRect.right - 320) + 'px';
-  box.innerHTML = `
-    <div class="inline-ai-header">✨ AI Edit</div>
+  // Create the inline box
+  inlineAiBox = document.createElement('div');
+  inlineAiBox.className = 'inline-ai-box';
+  inlineAiBox.innerHTML = `
+    <div class="inline-ai-header">✨ AI Edit <span style="font-weight:400;opacity:.6">(${selText.length} chars)</span></div>
     <div class="inline-ai-row">
-      <input type="text" class="inline-ai-input" placeholder="e.g. make it shorter, fix grammar...">
+      <input class="inline-ai-input" type="text"
+        placeholder="e.g. make shorter, translate, fix grammar..."
+        spellcheck="false" />
       <button class="inline-ai-go">Go</button>
-      <button class="inline-ai-cancel">✕</button>
+      <button class="inline-ai-cancel" title="Cancel (Esc)">✕</button>
     </div>
     <div class="inline-ai-status"></div>
   `;
-  document.body.appendChild(box);
 
-  const input = box.querySelector('.inline-ai-input');
-  const goBtn = box.querySelector('.inline-ai-go');
-  const cancelBtn = box.querySelector('.inline-ai-cancel');
-  const statusEl = box.querySelector('.inline-ai-status');
+  document.body.appendChild(inlineAiBox);
+
+  // Position — below the selection line, clamped to viewport
+  const boxW = 360;
+  const boxH = 90;
+  let top = pos.top + 4;
+  let left = Math.max(8, Math.min(pos.left, window.innerWidth - boxW - 8));
+  if (top + boxH > window.innerHeight - 30) {
+    top = pos.top - boxH - 4; // flip above
+  }
+  if (top < 44) top = 44; // below toolbar
+  inlineAiBox.style.top = top + 'px';
+  inlineAiBox.style.left = left + 'px';
+
+  const input = inlineAiBox.querySelector('.inline-ai-input');
+  const goBtn = inlineAiBox.querySelector('.inline-ai-go');
+  const cancelBtn = inlineAiBox.querySelector('.inline-ai-cancel');
+  const statusEl = inlineAiBox.querySelector('.inline-ai-status');
 
   input.focus();
 
-  async function doEdit() {
+  // ── Rewrite handler ──
+  async function doRewrite() {
     const instruction = input.value.trim();
-    if (!instruction) return;
+    if (!instruction) { input.focus(); return; }
 
-    statusEl.textContent = '⏳ AI is working...';
+    input.disabled = true;
     goBtn.disabled = true;
+    statusEl.innerHTML = '<span class="ai-streaming-indicator"></span> Rewriting…';
 
     try {
-      const result = await invoke('ai_rewrite', { text: sel, instruction });
+      const result = await invoke('ai_rewrite', { text: selText, instruction });
+
+      // Replace selection preserving undo history
       editor.focus();
-      editor.setSelectionRange(editor.selectionStart, editor.selectionEnd);
+      editor.setSelectionRange(selStart, selEnd);
       document.execCommand('insertText', false, result.text);
-      box.remove();
+
+      removeInlineAiBox();
+      flashEditorBorder('var(--green)');
     } catch (err) {
-      statusEl.textContent = `❌ ${err}`;
+      statusEl.textContent = '❌ ' + err;
+      input.disabled = false;
       goBtn.disabled = false;
+      input.focus();
     }
   }
 
-  goBtn.onclick = doEdit;
-  cancelBtn.onclick = () => box.remove();
+  goBtn.onclick = doRewrite;
+
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') doEdit();
-    if (e.key === 'Escape') box.remove();
+    if (e.key === 'Enter') { e.preventDefault(); doRewrite(); }
+    if (e.key === 'Escape') { e.preventDefault(); removeInlineAiBox(); editor.focus(); }
   });
+
+  cancelBtn.onclick = () => { removeInlineAiBox(); editor.focus(); };
+
+  // Close on outside click (mousedown so it fires before focus shifts)
+  setTimeout(() => {
+    document.addEventListener('mousedown', onOutsideClick);
+  }, 0);
+}
+
+function onOutsideClick(e) {
+  if (inlineAiBox && !inlineAiBox.contains(e.target)) {
+    removeInlineAiBox();
+    document.removeEventListener('mousedown', onOutsideClick);
+  }
+}
+
+function removeInlineAiBox() {
+  document.removeEventListener('mousedown', onOutsideClick);
+  if (inlineAiBox) {
+    inlineAiBox.remove();
+    inlineAiBox = null;
+  }
+}
+
+function flashEditorBorder(color) {
+  editor.style.boxShadow = `inset 0 0 0 2px ${color}`;
+  setTimeout(() => { editor.style.boxShadow = ''; }, 400);
+}
+
+/**
+ * Approximate pixel position of a caret offset inside a textarea.
+ * Works well for monospace fonts (the editor uses JetBrains Mono).
+ */
+function getCaretPixelPosition(textarea, offset) {
+  const text = textarea.value.substring(0, offset);
+  const lines = text.split('\n');
+  const lineIdx = lines.length - 1;
+  const colIdx = lines[lineIdx].length;
+
+  const cs = getComputedStyle(textarea);
+  const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.7;
+  const paddingTop = parseFloat(cs.paddingTop);
+  const paddingLeft = parseFloat(cs.paddingLeft);
+  const borderTop = parseFloat(cs.borderTopWidth);
+  const borderLeft = parseFloat(cs.borderLeftWidth);
+
+  // Monospace char width ≈ fontSize * 0.6
+  const charWidth = parseFloat(cs.fontSize) * 0.6;
+
+  const rect = textarea.getBoundingClientRect();
+
+  return {
+    top: rect.top + borderTop + paddingTop + lineIdx * lineHeight - textarea.scrollTop,
+    left: rect.left + borderLeft + paddingLeft + colIdx * charWidth,
+  };
 }
 
 // ─── Drag & Drop ──────────────────────────────────────────────────
