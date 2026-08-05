@@ -67,11 +67,11 @@
   - [x] OpenAI / Claude / Gemini（通过兼容 API）
   - [x] Ollama 本地模型（自动检测）
   - [x] 自定义 endpoint
-- [ ] Context Bundle 增强：
+- [x] Context Bundle 增强：
   - [ ] 支持引用多个文件
-  - [ ] 支持添加 URL 网页内容
-  - [ ] Token 计数估算
-- [ ] AI 使用统计（token 消耗 / 费用估算）
+  - [x] 支持添加 URL 网页内容
+  - [x] Token 计数估算
+- [x] AI 使用统计（token 消耗 / 费用估算）
 
 ### 安全
 - [ ] API Key 存储迁移到 OS Keychain
