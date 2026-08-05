@@ -29,19 +29,19 @@ pub fn estimate_tokens(text: &str) -> u32 {
     let mut count: u32 = 0;
     for ch in text.chars() {
         if ch.is_ascii() {
-            count += 1; // will divide by 4 at end for ASCII
-        } else if '\u{4e00}' <= ch && ch <= '\u{9fff}'
-            || '\u{3400}' <= ch && ch <= '\u{4dbf}'
-            || '\u{f900}' <= ch && ch <= '\u{faff}'
-            || '\u{3000}' <= ch && ch <= '\u{303f}'
-            || '\u{ff00}' <= ch && ch <= '\u{ffef}'
+            count += 1;
+        } else if ('\u{4e00}'..='\u{9fff}').contains(&ch)
+            || ('\u{3400}'..='\u{4dbf}').contains(&ch)
+            || ('\u{f900}'..='\u{faff}').contains(&ch)
+            || ('\u{3000}'..='\u{303f}').contains(&ch)
+            || ('\u{ff00}'..='\u{ffef}').contains(&ch)
         {
-            count += 4; // CJK = ~1 token each
+            count += 4;
         } else {
-            count += 2; // other unicode
+            count += 2;
         }
     }
-    (count + 3) / 4 // round up, ~4 ASCII chars per token
+    count.div_ceil(4)
 }
 
 /// Get token count for a given text.
