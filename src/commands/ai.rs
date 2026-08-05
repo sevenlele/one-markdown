@@ -152,13 +152,12 @@ fn strip_html_tags(html: &str) -> String {
                         || trimmed.starts_with("/li") || trimmed.starts_with("/tr")
                     {
                         result.push('\n');
-                    } else if trimmed.starts_with("p") || trimmed.starts_with("div")
+                    } else if (trimmed.starts_with("p") || trimmed.starts_with("div")
                         || trimmed.starts_with("h") || trimmed.starts_with("li")
-                        || trimmed.starts_with("tr") || trimmed.starts_with("blockquote")
+                        || trimmed.starts_with("tr") || trimmed.starts_with("blockquote"))
+                        && !result.ends_with('\n')
                     {
-                        if !result.ends_with('\n') {
-                            result.push('\n');
-                        }
+                        result.push('\n');
                     }
                 }
             } else {
