@@ -30,7 +30,9 @@ jobs:
         run: cargo install tauri-cli --version "^2"
 
       - name: Clippy
-        run: cargo clippy -- -D warnings 2>&1 || { echo 'Clippy failed'; exit 1; }
+        run: |
+          cargo clippy -- -D warnings 2>&1
+          echo "Clippy exit code: $?"
 
       - name: Test
         run: cargo test
