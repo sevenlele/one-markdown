@@ -166,21 +166,24 @@ fn strip_html_tags(html: &str) -> String {
         } else if !skip_content {
             // Decode common HTML entities
             if bytes[i] == b'&' {
-                if html[i..].starts_with("&amp;") {
-                    result.push('&');
-                    i += 5; continue;
-                } else if html[i..].starts_with("&lt;") {
-                    result.push('<');
-                    i += 4; continue;
-                } else if html[i..].starts_with("&gt;") {
-                    result.push('>');
-                    i += 4; continue;
-                } else if html[i..].starts_with("&quot;") {
-                    result.push('"');
-                    i += 6; continue;
-                } else if html[i..].starts_with("&nbsp;") {
-                    result.push(' ');
-                    i += 6; continue;
+                let rest = &html[i..];
+                let decoded = if rest.starts_with("&amp;") {
+                    Some(('&', 5))
+                } else if rest.starts_with("&lt;") {
+                    Some(('<', 4))
+                } else if rest.starts_with("&gt;") {
+                    Some(('>', 4))
+                } else if rest.starts_with("&quot;") {
+                    Some(('"', 6))
+                } else if rest.starts_with("&nbsp;") {
+                    Some((' ', 6))
+                } else {
+                    None
+                };
+                if let Some((ch, skip)) = decoded {
+                    result.push(ch);
+                    i += skip;
+                    continue;
                 }
             }
             result.push(bytes[i] as char);
