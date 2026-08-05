@@ -11,6 +11,8 @@ let autoSaveTimer = null;
 let currentTheme = localStorage.getItem('theme') || 'dark';
 let aiStreaming = false;
 let aiStreamText = '';
+let aiContinuation = false; // true when AI continuation is active
+let continueBox = null;     // floating box for continuation
 
 // ─── DOM ──────────────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -916,17 +918,25 @@ function bindAI() {
   listen('ai-chunk', (event) => {
     if (!aiStreaming) return;
     aiStreamText += event.payload;
-    aiOutput.textContent = aiStreamText;
-    // Auto-scroll to bottom
-    aiOutput.scrollTop = aiOutput.scrollHeight;
+    if (aiContinuation) {
+      updateContinuationPreview();
+    } else {
+      aiOutput.textContent = aiStreamText;
+      // Auto-scroll to bottom
+      aiOutput.scrollTop = aiOutput.scrollHeight;
+    }
   });
 
   listen('ai-done', (event) => {
     if (!aiStreaming) return;
     aiStreaming = false;
-    aiStatus.classList.add('hidden');
-    if (event.payload === 'cancelled') {
-      aiOutput.textContent = aiStreamText + '\n\n[Stream cancelled]';
+    if (aiContinuation) {
+      finishContinuation(event.payload === 'cancelled');
+    } else {
+      aiStatus.classList.add('hidden');
+      if (event.payload === 'cancelled') {
+        aiOutput.textContent = aiStreamText + '\n\n[Stream cancelled]';
+      }
     }
   });
 }
@@ -1133,6 +1143,122 @@ function getCaretPixelPosition(textarea, offset) {
   };
 }
 
+// ─── AI Continuation ────────────────────────────────────────────
+
+async function startAiContinuation() {
+  if (aiStreaming) return;
+
+  const cursorPos = editor.selectionStart;
+  const textBefore = editor.value.substring(0, cursorPos);
+  const textAfter = editor.value.substring(editor.selectionEnd);
+
+  if (!textBefore.trim()) return;
+
+  // Start streaming in continuation mode
+  aiStreaming = true;
+  aiContinuation = true;
+  aiStreamText = '';
+
+  showContinuationBox();
+
+  try {
+    await invoke('ai_continue_stream', {
+      textBefore,
+      textAfter: textAfter.trim() ? textAfter : null,
+    });
+  } catch (err) {
+    aiStreaming = false;
+    aiContinuation = false;
+    removeContinuationBox();
+    flashEditorBorder('var(--red)');
+    console.error('AI continue error:', err);
+  }
+}
+
+function showContinuationBox() {
+  removeContinuationBox();
+
+  const pos = getCaretPixelPosition(editor, editor.selectionStart);
+
+  continueBox = document.createElement('div');
+  continueBox.className = 'inline-ai-box';
+  continueBox.style.minWidth = '200px';
+  continueBox.style.maxWidth = '400px';
+  continueBox.innerHTML = `
+    <div class="inline-ai-header">✨ AI Writing...</div>
+    <div class="inline-ai-status" style="padding:4px 0;font-size:12px;color:var(--text2)">
+      <span class="ai-streaming-indicator"></span>
+      <span id="continue-preview" style="display:block;margin-top:4px;white-space:pre-wrap;word-wrap:break-word;max-height:120px;overflow-y:auto;font-size:12px;color:var(--text);line-height:1.5"></span>
+    </div>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="inline-ai-go" id="continue-accept" disabled title="Accept (Tab)">✓ Accept</button>
+      <button class="inline-ai-cancel" id="continue-cancel" title="Cancel (Esc)">✕</button>
+    </div>
+  `;
+
+  document.body.appendChild(continueBox);
+
+  // Position below caret
+  let top = pos.top + 4;
+  let left = Math.max(8, Math.min(pos.left, window.innerWidth - 320));
+  if (top + 100 > window.innerHeight - 30) top = pos.top - 110;
+  if (top < 44) top = 44;
+  continueBox.style.top = top + 'px';
+  continueBox.style.left = left + 'px';
+
+  continueBox.querySelector('#continue-accept').onclick = () => acceptContinuation();
+  continueBox.querySelector('#continue-cancel').onclick = () => cancelContinuation();
+}
+
+function updateContinuationPreview() {
+  if (!continueBox) return;
+  const preview = continueBox.querySelector('#continue-preview');
+  if (preview) {
+    preview.textContent = aiStreamText;
+    preview.scrollTop = preview.scrollHeight;
+  }
+}
+
+function finishContinuation(cancelled) {
+  aiContinuation = false;
+  if (!continueBox) return;
+
+  if (cancelled) {
+    removeContinuationBox();
+    flashEditorBorder('var(--yellow)');
+    return;
+  }
+
+  // Enable accept button
+  const acceptBtn = continueBox.querySelector('#continue-accept');
+  if (acceptBtn) acceptBtn.disabled = false;
+
+  const header = continueBox.querySelector('.inline-ai-header');
+  if (header) header.textContent = '✨ Done — press Accept';
+}
+
+function acceptContinuation() {
+  if (!aiStreamText) return;
+  editor.focus();
+  document.execCommand('insertText', false, aiStreamText);
+  removeContinuationBox();
+  flashEditorBorder('var(--green)');
+}
+
+function cancelContinuation() {
+  if (aiStreaming) invoke('ai_stream_cancel');
+  aiContinuation = false;
+  removeContinuationBox();
+  editor.focus();
+}
+
+function removeContinuationBox() {
+  if (continueBox) {
+    continueBox.remove();
+    continueBox = null;
+  }
+}
+
 // ─── Drag & Drop ──────────────────────────────────────────────────
 function bindDragDrop() {
   document.addEventListener('dragover', (e) => {
@@ -1206,10 +1332,14 @@ function bindShortcuts() {
       case 'Enter':
         if (mod) {
           e.preventDefault();
-          const pos = editor.selectionEnd;
-          const rest = editor.value.slice(pos);
-          const nextLine = rest.startsWith('\n') ? '' : '\n';
-          insertText(nextLine + '\n');
+          if (e.shiftKey) {
+            startAiContinuation();
+          } else {
+            const pos = editor.selectionEnd;
+            const rest = editor.value.slice(pos);
+            const nextLine = rest.startsWith('\n') ? '' : '\n';
+            insertText(nextLine + '\n');
+          }
         }
         break;
     }

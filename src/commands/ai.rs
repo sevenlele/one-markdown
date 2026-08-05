@@ -298,6 +298,44 @@ pub async fn ai_rewrite_stream(
     call_ai_stream(&prompt, &app, &state).await
 }
 
+/// AI: Continue writing from the cursor position (streaming).
+#[tauri::command]
+pub async fn ai_continue_stream(
+    text_before: String,
+    text_after: Option<String>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<EditorState>>,
+) -> Result<(), String> {
+    let prompt = if let Some(after) = text_after {
+        if !after.trim().is_empty() {
+            format!(
+                "Continue the following text naturally from where it left off. \
+                 Write ONLY the continuation — do NOT repeat or rewrite the existing text. \
+                 Match the style, tone, and language of the existing content.\
+                 \n\nText so far:\n{}\n\nText that follows (maintain coherence):\n{}",
+                text_before, after
+            )
+        } else {
+            format!(
+                "Continue the following text naturally from where it left off. \
+                 Write ONLY the continuation — do NOT repeat or rewrite the existing text. \
+                 Match the style, tone, and language.\
+                 \n\nText so far:\n{}",
+                text_before
+            )
+        }
+    } else {
+        format!(
+            "Continue the following text naturally from where it left off. \
+             Write ONLY the continuation — do NOT repeat or rewrite the existing text. \
+             Match the style, tone, and language.\
+             \n\nText so far:\n{}",
+            text_before
+        )
+    };
+    call_ai_stream(&prompt, &app, &state).await
+}
+
 /// Cancel the currently running AI stream.
 #[tauri::command]
 pub fn ai_stream_cancel() {

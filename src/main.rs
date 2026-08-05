@@ -46,6 +46,7 @@ fn main() {
             commands::ai::ai_summarize_stream,
             commands::ai::ai_translate_stream,
             commands::ai::ai_rewrite_stream,
+            commands::ai::ai_continue_stream,
             commands::ai::ai_stream_cancel,
             // Settings
             commands::editor::get_settings,

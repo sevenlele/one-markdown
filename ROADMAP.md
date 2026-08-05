@@ -15,13 +15,13 @@
 > 修掉阻塞性问题，让产品基本可用。
 
 - [x] 项目初始化 + GitHub Actions CI/CD
-- [ ] **P0: SyntaxSet 全局缓存**（每次渲染重新加载 3MB → 初始化一次）
-- [ ] **P0: 异步命令**（文件 I/O 和 AI 调用阻塞 UI → async + tokio::fs）
-- [ ] **P1: 撤销/重做保护**（wrap/insertAtCursor 摧毁 textarea undo 栈）
-- [ ] **P1: 关闭未保存提醒**
+- [x] **P0: SyntaxSet 全局缓存**（每次渲染重新加载 3MB → 初始化一次）
+- [x] **P0: 异步命令**（文件 I/O 和 AI 调用阻塞 UI → async + tokio::fs）
+- [x] **P1: 撤销/重做保护**（wrap/insertAtCursor 摧毁 textarea undo 栈）
+- [x] **P1: 关闭未保存提醒**
 - [ ] **P1: API Key 安全存储**（OS Keychain 或加密）
 - [ ] **P1: CSP 安全策略收紧**
-- [ ] 修复 frontmatter 解析边界情况（`\n---\n` 而非 `\n---`）
+- [x] 修复 frontmatter 解析边界情况（`\n---\n` 而非 `\n---`）
 
 **发布：** v0.1.1 patch release
 
@@ -40,13 +40,13 @@
 - [x] 浅色主题 + 主题切换
 - [x] 自动保存（可配置间隔）
 - [x] Markdown 快捷键增强：
-  - [ ] 自动补全括号/引号
+  - [x] 自动补全括号/引号
   - [x] 列表自动延续（回车自动加 `- `）
   - [x] Tab 缩进选中行
 
 ### 应该有
 - [x] 字数/阅读时间估算
-- [ ] 文件树侧边栏（可选显示）
+- [x] 文件树侧边栏（可选显示）
 - [x] 打印支持 (Ctrl+P)
 - [ ] 快捷键自定义
 
@@ -61,7 +61,7 @@
 ### AI 功能增强
 - [x] 流式输出（SSE）— AI 回复实时显示，不卡 UI
 - [x] AI 内联编辑 — 选中文字，按快捷键，AI 直接替换选中内容
-- [ ] AI 续写 — 光标处按 Tab，AI 自动续写下文
+- [x] AI 续写 — 光标处按 Tab，AI 自动续写下文
 - [ ] AI 对话模式 — 侧边栏多轮对话，可引用文档上下文
 - [x] 支持更多 AI 后端：
   - [x] OpenAI / Claude / Gemini（通过兼容 API）
