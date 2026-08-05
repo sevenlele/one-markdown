@@ -13,6 +13,7 @@ let aiStreaming = false;
 let aiStreamText = '';
 let aiContinuation = false; // true when AI continuation is active
 let continueBox = null;     // floating box for continuation
+let customKeys = {};          // user keybindings from settings
 
 // ─── DOM ──────────────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -893,6 +894,9 @@ async function loadSettingsIntoUI() {
     editor.style.fontSize = (s.fontSize || 15) + 'px';
     editor.style.tabSize = s.tabSize || 4;
     editor.style.whiteSpace = s.wordWrap !== false ? 'pre-wrap' : 'pre';
+
+    // Load custom keybindings
+    customKeys = s.keybindings || {};
   } catch (err) {
     console.error('Load settings error:', err);
   }
@@ -1296,11 +1300,60 @@ function bindDragDrop() {
 }
 
 // ─── Shortcuts ────────────────────────────────────────────────────
+
+// Action registry — maps action names to functions
+const shortcutActions = {
+  new: () => newFile(),
+  open: () => openFile(),
+  save: () => saveFile(),
+  saveAs: () => saveFileAs(),
+  bold: () => wrap('**', '**'),
+  italic: () => wrap('*', '*'),
+  strikethrough: () => wrap('~~', '~~'),
+  code: () => wrap('`', '`'),
+  link: () => insertLink(),
+  search: () => { window._searchBar.classList.remove('hidden'); window._searchInput.focus(); window._searchInput.select(); },
+  replace: () => { window._searchBar.classList.remove('hidden'); window._replaceInput.focus(); },
+  aiPanel: () => aiPanel.classList.toggle('hidden'),
+  aiEdit: () => showInlineAiEdit(),
+  aiContinue: () => startAiContinuation(),
+  print: () => printPreview(),
+};
+
+/**
+ * Match a KeyboardEvent against a shortcut string.
+ * Format: "Ctrl+Shift+Key" or "Ctrl+Key" (case-insensitive for key).
+ */
+function matchShortcut(e, str) {
+  const parts = str.toLowerCase().split('+');
+  const key = parts.pop();
+  const needCtrl = parts.includes('ctrl') || parts.includes('cmd');
+  const needShift = parts.includes('shift');
+  const needAlt = parts.includes('alt');
+  const eventKey = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  return (
+    eventKey === key &&
+    (e.ctrlKey || e.metaKey) === needCtrl &&
+    e.shiftKey === needShift &&
+    e.altKey === needAlt
+  );
+}
+
 function bindShortcuts() {
   document.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
 
+    // Check custom keybindings first
+    for (const [action, shortcut] of Object.entries(customKeys)) {
+      if (matchShortcut(e, shortcut) && shortcutActions[action]) {
+        e.preventDefault();
+        shortcutActions[action]();
+        return;
+      }
+    }
+
+    // Default keybindings
     switch (e.key) {
       case 'n': e.preventDefault(); newFile(); break;
       case 'o': e.preventDefault(); openFile(); break;
@@ -1316,7 +1369,6 @@ function bindShortcuts() {
         e.preventDefault();
         window._searchBar.classList.remove('hidden');
         window._searchInput.focus();
-        // If text selected, use it as search query
         const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
         if (sel) {
           window._searchInput.value = sel;

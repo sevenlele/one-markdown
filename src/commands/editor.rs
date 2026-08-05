@@ -3,6 +3,7 @@ use anyhow::Result;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 use std::thread;
@@ -29,6 +30,8 @@ pub struct Settings {
     pub ai_endpoint: String,
     pub ai_key: String,
     pub ai_model: String,
+    #[serde(default)]
+    pub keybindings: HashMap<String, String>,
 }
 
 impl Default for Settings {
@@ -42,6 +45,7 @@ impl Default for Settings {
             ai_endpoint: String::new(),
             ai_key: String::new(),
             ai_model: String::new(),
+            keybindings: HashMap::new(),
         }
     }
 }
