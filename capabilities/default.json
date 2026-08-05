@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for OneMarkdown",
+  "windows": ["main"],
+  "permissions": [
+    "dialog:default",
+    "shell:default",
+    "clipboard-manager:default"
+  ]
+}
