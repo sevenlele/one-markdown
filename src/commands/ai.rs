@@ -122,77 +122,67 @@ pub async fn ai_fetch_url(url: String) -> Result<String, String> {
     Ok(truncated)
 }
 
-#[allow(clippy::all)]
 fn strip_html_tags(html: &str) -> String {
-    let bytes = html.as_bytes();
-    let len = bytes.len();
-    let mut result = String::with_capacity(len / 2);
-    let mut i = 0;
+    let mut result = String::with_capacity(html.len() / 2);
     let mut in_tag = false;
-    let mut skip_content = false; // for <script>/<style>
+    let mut skip_content = false;
     let mut tag_buf = String::new();
+    let mut chars = html.char_indices().peekable();
 
-    while i < len {
-        if !in_tag && bytes[i] == b'<' {
-            // Start of a tag
+    while let Some((i, ch)) = chars.next() {
+        if !in_tag && ch == '<' {
             in_tag = true;
             tag_buf.clear();
         } else if in_tag {
-            if bytes[i] == b'>' {
+            if ch == '>' {
                 in_tag = false;
                 let lower = tag_buf.to_lowercase();
-                let trimmed = lower.trim_start();
+                let trimmed = lower.trim_start().to_owned();
                 if trimmed.starts_with("script") || trimmed.starts_with("style") {
                     skip_content = true;
                 } else if trimmed.starts_with("/script") || trimmed.starts_with("/style") {
                     skip_content = false;
                 } else if !skip_content {
-                    // Convert block elements to newlines
-                    if trimmed.starts_with("br") || trimmed.starts_with("/p")
-                        || trimmed.starts_with("/div") || trimmed.starts_with("/h")
-                        || trimmed.starts_with("/li") || trimmed.starts_with("/tr")
-                    {
-                        result.push('\n');
-                    } else if (trimmed.starts_with("p") || trimmed.starts_with("div")
+                    let is_closing = trimmed.starts_with("/p") || trimmed.starts_with("/div")
+                        || trimmed.starts_with("/h") || trimmed.starts_with("/li")
+                        || trimmed.starts_with("/tr");
+                    let is_opening = trimmed.starts_with("p") || trimmed.starts_with("div")
                         || trimmed.starts_with("h") || trimmed.starts_with("li")
-                        || trimmed.starts_with("tr") || trimmed.starts_with("blockquote"))
-                        && !result.ends_with('\n')
-                    {
+                        || trimmed.starts_with("tr") || trimmed.starts_with("blockquote");
+                    if trimmed.starts_with("br") || is_closing {
+                        result.push('\n');
+                    } else if is_opening && !result.ends_with('\n') {
                         result.push('\n');
                     }
                 }
             } else {
-                tag_buf.push(bytes[i] as char);
+                tag_buf.push(ch);
             }
         } else if !skip_content {
-            // Decode common HTML entities
-            if bytes[i] == b'&' {
+            if ch == '&' {
                 let rest = &html[i..];
-                let decoded = if rest.starts_with("&amp;") {
-                    Some(('&', 5))
-                } else if rest.starts_with("&lt;") {
-                    Some(('<', 4))
-                } else if rest.starts_with("&gt;") {
-                    Some(('>', 4))
-                } else if rest.starts_with("&quot;") {
-                    Some(('"', 6))
-                } else if rest.starts_with("&nbsp;") {
-                    Some((' ', 6))
-                } else {
-                    None
-                };
-                if let Some((ch, skip)) = decoded {
-                    result.push(ch);
-                    i += skip;
+                let decoded = rest.strip_prefix("&amp;").map(|_| ('&'))
+                    .or_else(|| rest.strip_prefix("&lt;").map(|_| ('<')))
+                    .or_else(|| rest.strip_prefix("&gt;").map(|_| ('>')))
+                    .or_else(|| rest.strip_prefix("&quot;").map(|_| ('"')))
+                    .or_else(|| rest.strip_prefix("&nbsp;").map(|_| (' ')));
+                if let Some(d) = decoded {
+                    result.push(d);
+                    // Skip past the entity
+                    let entity_len = match d {
+                        '&' => 5, '<' | '>' => 4, '"' | ' ' => 6,
+                        _ => 1,
+                    };
+                    for _ in 1..entity_len {
+                        chars.next();
+                    }
                     continue;
                 }
             }
-            result.push(bytes[i] as char);
+            result.push(ch);
         }
-        i += 1;
     }
 
-    // Collapse whitespace
     result.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
