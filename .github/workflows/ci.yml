@@ -29,8 +29,8 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
-      - name: Clippy (diagnostic)
-        run: cargo clippy 2>&1 || true
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Test
         run: cargo test

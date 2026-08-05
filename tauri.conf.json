@@ -4,8 +4,7 @@
   "identifier": "com.onemarkdown.app",
   "build": {
     "frontendDist": "./frontend",
-    "devUrl": "http://localhost:1420",
-    "capabilitiesDir": "./capabilities"
+    "devUrl": "http://localhost:1420"
   },
   "app": {
     "windows": [
