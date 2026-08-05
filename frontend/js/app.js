@@ -14,6 +14,8 @@ let aiStreamText = '';
 let aiContinuation = false; // true when AI continuation is active
 let continueBox = null;     // floating box for continuation
 let customKeys = {};          // user keybindings from settings
+let aiChatMode = false;       // true = chat mode, false = actions mode
+let aiChatHistory = [];       // [{role, content}]
 
 // ─── DOM ──────────────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -904,19 +906,46 @@ async function loadSettingsIntoUI() {
 
 // ─── AI ───────────────────────────────────────────────────────────
 function bindAI() {
-  $('#btn-ai').onclick = () => aiPanel.classList.toggle('hidden');
+  $('#btn-ai').onclick = () => {
+    aiPanel.classList.toggle('hidden');
+    if (!aiPanel.classList.contains('hidden') && aiChatMode) {
+      $('#ai-chat-input').focus();
+    }
+  };
   $('#btn-ai-edit').onclick = showInlineAiEdit;
   $('#ai-close').onclick = () => {
     if (aiStreaming) stopAiStream();
     aiPanel.classList.add('hidden');
   };
 
-  document.querySelectorAll('.ai-btn').forEach(btn => {
-    if (btn.id === 'ai-stop') return; // handled separately
+  // Mode switching
+  $('#ai-mode-actions').onclick = () => switchAiMode(false);
+  $('#ai-mode-chat').onclick = () => switchAiMode(true);
+
+  document.querySelectorAll('.ai-btn[data-action]').forEach(btn => {
     btn.onclick = () => handleAiAction(btn.dataset.action);
   });
 
   aiStopBtn.onclick = stopAiStream;
+
+  // Chat mode
+  const chatInput = $('#ai-chat-input');
+  const chatSend = $('#ai-chat-send');
+  const chatStop = $('#ai-chat-stop');
+
+  chatSend.onclick = sendChatMessage;
+  chatStop.onclick = stopAiStream;
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+    if (e.key === 'Escape') {
+      aiPanel.classList.add('hidden');
+      editor.focus();
+    }
+  });
 
   // Listen for streaming events from backend
   listen('ai-chunk', (event) => {
@@ -924,9 +953,10 @@ function bindAI() {
     aiStreamText += event.payload;
     if (aiContinuation) {
       updateContinuationPreview();
+    } else if (aiChatMode) {
+      updateChatStream();
     } else {
       aiOutput.textContent = aiStreamText;
-      // Auto-scroll to bottom
       aiOutput.scrollTop = aiOutput.scrollHeight;
     }
   });
@@ -936,6 +966,8 @@ function bindAI() {
     aiStreaming = false;
     if (aiContinuation) {
       finishContinuation(event.payload === 'cancelled');
+    } else if (aiChatMode) {
+      finishChatStream(event.payload === 'cancelled');
     } else {
       aiStatus.classList.add('hidden');
       if (event.payload === 'cancelled') {
@@ -943,6 +975,103 @@ function bindAI() {
       }
     }
   });
+}
+
+// ─── AI Mode Switching ───────────────────────────────────────────
+function switchAiMode(toChat) {
+  aiChatMode = toChat;
+  const actionsPanel = $('#ai-actions-panel');
+  const chatPanel = $('#ai-chat-panel');
+  const modeActionsBtn = $('#ai-mode-actions');
+  const modeChatBtn = $('#ai-mode-chat');
+
+  if (toChat) {
+    actionsPanel.style.display = 'none';
+    chatPanel.style.display = 'flex';
+    modeActionsBtn.classList.remove('tb-accent');
+    modeChatBtn.classList.add('tb-accent');
+    $('#ai-chat-input').focus();
+  } else {
+    actionsPanel.style.display = '';
+    chatPanel.style.display = 'none';
+    modeActionsBtn.classList.add('tb-accent');
+    modeChatBtn.classList.remove('tb-accent');
+  }
+}
+
+// ─── AI Chat ─────────────────────────────────────────────────────
+function sendChatMessage() {
+  const input = $('#ai-chat-input');
+  const text = input.value.trim();
+  if (!text || aiStreaming) return;
+
+  // Replace @selection with actual selected text
+  let userMsg = text;
+  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+  if (userMsg.includes('@selection') && sel) {
+    userMsg = userMsg.replace('@selection', `\n\n> ${sel.split('\n').join('\n> ')}`);
+  }
+
+  // Add user message to history
+  aiChatHistory.push({ role: 'user', content: userMsg });
+  renderChatMessage('user', userMsg);
+
+  // Build messages array for API
+  const systemPrompt = {
+    role: 'system',
+    content: 'You are a helpful writing assistant inside a Markdown editor called OneMarkdown. ' +
+      'Be concise and helpful. Match the language of the user. ' +
+      'When asked to write or edit content, return ONLY the content without explanation.'
+  };
+  const messages = [systemPrompt, ...aiChatHistory];
+
+  input.value = '';
+  aiStreaming = true;
+  aiStreamText = '';
+  $('#ai-chat-status').classList.remove('hidden');
+
+  // Add placeholder for assistant response
+  const msgEl = renderChatMessage('assistant', '');
+
+  invoke('ai_chat_stream', { messages }).catch(err => {
+    aiStreaming = false;
+    $('#ai-chat-status').classList.add('hidden');
+    renderChatMessage('system', '❌ ' + err);
+  });
+}
+
+function renderChatMessage(role, content) {
+  const container = $('#ai-chat-messages');
+  const div = document.createElement('div');
+  div.className = `ai-chat-msg ${role}`;
+  div.textContent = content;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function updateChatStream() {
+  const container = $('#ai-chat-messages');
+  const lastMsg = container.lastElementChild;
+  if (lastMsg && lastMsg.classList.contains('assistant')) {
+    lastMsg.textContent = aiStreamText;
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function finishChatStream(cancelled) {
+  $('#ai-chat-status').classList.add('hidden');
+  const finalText = cancelled ? aiStreamText + ' [cancelled]' : aiStreamText;
+  if (finalText) {
+    aiChatHistory.push({ role: 'assistant', content: finalText });
+    // Update the last assistant message
+    const container = $('#ai-chat-messages');
+    const lastMsg = container.lastElementChild;
+    if (lastMsg && lastMsg.classList.contains('assistant')) {
+      lastMsg.textContent = finalText;
+    }
+  }
+  $('#ai-chat-input').focus();
 }
 
 function startAiStream() {

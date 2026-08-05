@@ -121,20 +121,40 @@
   <div id="ai-panel" class="ai-panel hidden">
     <div class="ai-panel-header">
       <span>✨ AI Assistant</span>
-      <button id="ai-close" class="tb tb-sm">✕</button>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button id="ai-mode-actions" class="tb tb-sm tb-accent" title="Quick Actions">⚡</button>
+        <button id="ai-mode-chat" class="tb tb-sm" title="Chat Mode">💬</button>
+        <button id="ai-close" class="tb tb-sm">✕</button>
+      </div>
     </div>
-    <div class="ai-actions">
-      <button class="ai-btn" data-action="explain">📖 Explain</button>
-      <button class="ai-btn" data-action="summarize">📝 Summarize</button>
-      <button class="ai-btn" data-action="translate">🌐 Translate</button>
-      <button class="ai-btn" data-action="rewrite">✏️ Rewrite</button>
-      <button class="ai-btn" data-action="context">📦 Context Bundle</button>
+    <!-- Actions mode -->
+    <div id="ai-actions-panel">
+      <div class="ai-actions">
+        <button class="ai-btn" data-action="explain">📖 Explain</button>
+        <button class="ai-btn" data-action="summarize">📝 Summarize</button>
+        <button class="ai-btn" data-action="translate">🌐 Translate</button>
+        <button class="ai-btn" data-action="rewrite">✏️ Rewrite</button>
+        <button class="ai-btn" data-action="context">📦 Context Bundle</button>
+      </div>
+      <div id="ai-status" class="ai-status hidden">
+        <span class="ai-streaming-indicator">⏳ Streaming...</span>
+        <button id="ai-stop" class="ai-btn ai-stop-btn">⏹ Stop</button>
+      </div>
+      <div id="ai-output" class="ai-output"></div>
     </div>
-    <div id="ai-status" class="ai-status hidden">
-      <span class="ai-streaming-indicator">⏳ Streaming...</span>
-      <button id="ai-stop" class="ai-btn ai-stop-btn">⏹ Stop</button>
+    <!-- Chat mode -->
+    <div id="ai-chat-panel" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div id="ai-chat-messages" class="ai-chat-messages"></div>
+      <div id="ai-chat-status" class="ai-status hidden">
+        <span class="ai-streaming-indicator">⏳ Thinking...</span>
+        <button id="ai-chat-stop" class="ai-btn ai-stop-btn">⏹ Stop</button>
+      </div>
+      <div class="ai-chat-input-row">
+        <textarea id="ai-chat-input" class="ai-chat-input" placeholder="Ask anything... (Ctrl+Enter to send)" rows="2"></textarea>
+        <button id="ai-chat-send" class="ai-btn ai-chat-send-btn">➤</button>
+      </div>
+      <div class="ai-chat-hint">Ctrl+Enter sends · Esc closes · Include selected text with @selection</div>
     </div>
-    <div id="ai-output" class="ai-output"></div>
   </div>
 
   <!-- ─── Main editor ─────────────────────────────────────── -->

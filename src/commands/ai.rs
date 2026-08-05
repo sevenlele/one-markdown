@@ -337,6 +337,32 @@ pub async fn ai_continue_stream(
 }
 
 /// Cancel the currently running AI stream.
+/// AI: Multi-turn chat with streaming.
+/// messages: array of {role: "user"|"assistant"|"system", content: "..."}
+#[tauri::command]
+pub async fn ai_chat_stream(
+    messages: Vec<ChatMessage>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<EditorState>>,
+) -> Result<(), String> {
+    if messages.is_empty() {
+        return Err("No messages provided".into());
+    }
+    call_ai_chat_stream(&messages, &app, &state).await
+}
+
+/// AI: Multi-turn chat (non-streaming, returns full response).
+#[tauri::command]
+pub async fn ai_chat(
+    messages: Vec<ChatMessage>,
+    state: tauri::State<'_, Mutex<EditorState>>,
+) -> Result<AiResult, String> {
+    if messages.is_empty() {
+        return Err("No messages provided".into());
+    }
+    call_ai_chat(&messages, &state).await
+}
+
 #[tauri::command]
 pub fn ai_stream_cancel() {
     STREAM_CANCEL.store(true, Ordering::SeqCst);
@@ -428,6 +454,149 @@ async fn call_ai_stream(
     }
 
     // Stream ended without [DONE]
+    let _ = app.emit("ai-done", "done");
+    Ok(())
+}
+
+async fn call_ai_chat(
+    messages: &[ChatMessage],
+    state: &Mutex<EditorState>,
+) -> Result<AiResult, String> {
+    let (endpoint, key, model) = {
+        let s = state.lock().map_err(|e| e.to_string())?;
+        (
+            s.settings.ai_endpoint.clone(),
+            s.settings.ai_key.clone(),
+            s.settings.ai_model.clone(),
+        )
+    };
+
+    if endpoint.is_empty() || key.is_empty() {
+        return Err("AI not configured. Set your API endpoint and key in Settings.".into());
+    }
+
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+
+    let body = ChatRequest {
+        model,
+        messages: messages.to_vec(),
+        stream: false,
+        max_tokens: 2048,
+    };
+
+    let resp = client()
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("AI request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(format!("AI returned HTTP {}", status));
+    }
+
+    let chat_resp: ChatResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse AI response: {}", e))?;
+
+    let text = chat_resp
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    Ok(AiResult {
+        text,
+        tokens_used: 0,
+    })
+}
+
+async fn call_ai_chat_stream(
+    messages: &[ChatMessage],
+    app: &tauri::AppHandle,
+    state: &Mutex<EditorState>,
+) -> Result<(), String> {
+    STREAM_CANCEL.store(false, Ordering::SeqCst);
+
+    let (endpoint, key, model) = {
+        let s = state.lock().map_err(|e| e.to_string())?;
+        (
+            s.settings.ai_endpoint.clone(),
+            s.settings.ai_key.clone(),
+            s.settings.ai_model.clone(),
+        )
+    };
+
+    if endpoint.is_empty() || key.is_empty() {
+        return Err("AI not configured. Set your API endpoint and key in Settings.".into());
+    }
+
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "stream": true,
+        "max_tokens": 2048
+    });
+
+    let resp = client()
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("AI request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(format!("AI returned HTTP {}", status));
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk_result) = stream.next().await {
+        if STREAM_CANCEL.load(Ordering::SeqCst) {
+            let _ = app.emit("ai-done", "cancelled");
+            return Ok(());
+        }
+
+        let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        while let Some(line_end) = buffer.find('\n') {
+            let line = buffer[..line_end].trim().to_string();
+            buffer = buffer[line_end + 1..].to_string();
+
+            if line.is_empty() {
+                continue;
+            }
+
+            if let Some(data) = line.strip_prefix("data: ") {
+                if data == "[DONE]" {
+                    let _ = app.emit("ai-done", "done");
+                    return Ok(());
+                }
+
+                if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
+                    if let Some(choice) = chunk.choices.first() {
+                        if let Some(delta) = &choice.delta {
+                            if let Some(content) = &delta.content {
+                                let _ = app.emit("ai-chunk", content.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let _ = app.emit("ai-done", "done");
     Ok(())
 }
