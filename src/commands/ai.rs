@@ -123,67 +123,33 @@ pub async fn ai_fetch_url(url: String) -> Result<String, String> {
 }
 
 fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len() / 2);
+    let mut out = String::with_capacity(html.len() / 2);
+    let mut depth = 0u32; // tag depth (for nested script/style)
+    let mut tag = String::new();
     let mut in_tag = false;
-    let mut skip_content = false;
-    let mut tag_buf = String::new();
-    let mut chars = html.char_indices().peekable();
 
-    while let Some((i, ch)) = chars.next() {
-        if !in_tag && ch == '<' {
+    for ch in html.chars() {
+        if ch == '<' {
             in_tag = true;
-            tag_buf.clear();
+            tag.clear();
+        } else if ch == '>' && in_tag {
+            in_tag = false;
+            let t = tag.to_lowercase();
+            let t = t.trim();
+            if t.starts_with("script") || t.starts_with("style") {
+                depth += 1;
+            } else if t.starts_with("/script") || t.starts_with("/style") {
+                depth = depth.saturating_sub(1);
+            } else if depth == 0 {
+                out.push('\n');
+            }
         } else if in_tag {
-            if ch == '>' {
-                in_tag = false;
-                let lower = tag_buf.to_lowercase();
-                let trimmed = lower.trim_start().to_owned();
-                if trimmed.starts_with("script") || trimmed.starts_with("style") {
-                    skip_content = true;
-                } else if trimmed.starts_with("/script") || trimmed.starts_with("/style") {
-                    skip_content = false;
-                } else if !skip_content {
-                    let is_closing = trimmed.starts_with("/p") || trimmed.starts_with("/div")
-                        || trimmed.starts_with("/h") || trimmed.starts_with("/li")
-                        || trimmed.starts_with("/tr");
-                    let is_opening = trimmed.starts_with("p") || trimmed.starts_with("div")
-                        || trimmed.starts_with("h") || trimmed.starts_with("li")
-                        || trimmed.starts_with("tr") || trimmed.starts_with("blockquote");
-                    if trimmed.starts_with("br") || is_closing {
-                        result.push('\n');
-                    } else if is_opening && !result.ends_with('\n') {
-                        result.push('\n');
-                    }
-                }
-            } else {
-                tag_buf.push(ch);
-            }
-        } else if !skip_content {
-            if ch == '&' {
-                let rest = &html[i..];
-                let decoded = rest.strip_prefix("&amp;").map(|_| ('&'))
-                    .or_else(|| rest.strip_prefix("&lt;").map(|_| ('<')))
-                    .or_else(|| rest.strip_prefix("&gt;").map(|_| ('>')))
-                    .or_else(|| rest.strip_prefix("&quot;").map(|_| ('"')))
-                    .or_else(|| rest.strip_prefix("&nbsp;").map(|_| (' ')));
-                if let Some(d) = decoded {
-                    result.push(d);
-                    // Skip past the entity
-                    let entity_len = match d {
-                        '&' => 5, '<' | '>' => 4, '"' | ' ' => 6,
-                        _ => 1,
-                    };
-                    for _ in 1..entity_len {
-                        chars.next();
-                    }
-                    continue;
-                }
-            }
-            result.push(ch);
+            tag.push(ch);
+        } else if depth == 0 {
+            out.push(ch);
         }
     }
-
-    result.split_whitespace().collect::<Vec<&str>>().join(" ")
+    out.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
 /// Generate a context bundle from the current document.
