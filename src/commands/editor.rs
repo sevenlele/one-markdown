@@ -1,6 +1,7 @@
 use crate::core::{assets, frontmatter, markdown, watcher};
 use anyhow::Result;
 use base64::Engine;
+use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::collections::HashMap;
@@ -411,17 +412,86 @@ fn save_recent_files(files: &[PathBuf]) {
 
 fn load_settings() -> Settings {
     let path = config_dir().join("settings.json");
-    fs::read_to_string(&path)
+    let mut settings: Settings = fs::read_to_string(&path)
         .ok()
         .and_then(|d| serde_json::from_str(&d).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Decrypt API key if encrypted
+    if settings.ai_key.starts_with("enc:") {
+        settings.ai_key = decrypt_key(&settings.ai_key);
+    }
+    settings
 }
 
 fn save_settings_to_disk(settings: &Settings) {
     let dir = config_dir();
     let _ = fs::create_dir_all(&dir);
+    let mut to_save = settings.clone();
+    // Encrypt API key before saving
+    if !to_save.ai_key.is_empty() {
+        to_save.ai_key = encrypt_key(&to_save.ai_key);
+    }
     let _ = fs::write(
         dir.join("settings.json"),
-        serde_json::to_string_pretty(settings).unwrap_or_default(),
+        serde_json::to_string_pretty(&to_save).unwrap_or_default(),
     );
+}
+
+// ─── API Key encryption (XOR with machine-derived key) ─────────────
+
+fn machine_key() -> Vec<u8> {
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().to_string()).unwrap_or_default();
+    let username = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(b"onemarkdown-salt-v1");
+    hasher.update(home.as_bytes());
+    hasher.update(username.as_bytes());
+    hasher.finalize().to_vec()
+}
+
+fn encrypt_key(plaintext: &str) -> String {
+    if plaintext.is_empty() || plaintext.starts_with("enc:") {
+        return plaintext.to_string();
+    }
+    let key = machine_key();
+    let encrypted: Vec<u8> = plaintext
+        .bytes()
+        .enumerate()
+        .map(|(i, b)| b ^ key[i % key.len()])
+        .collect();
+    format!("enc:{}", hex::encode(&encrypted))
+}
+
+fn decrypt_key(stored: &str) -> String {
+    let hex_str = match stored.strip_prefix("enc:") {
+        Some(h) => h,
+        None => return stored.to_string(),
+    };
+    let encrypted = match hex::decode(hex_str) {
+        Ok(v) => v,
+        Err(_) => return stored.to_string(),
+    };
+    let key = machine_key();
+    let decrypted: Vec<u8> = encrypted
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ key[i % key.len()])
+        .collect();
+    String::from_utf8(decrypted).unwrap_or_default()
+}
+
+// Simple hex encode/decode (avoid adding another dependency)
+mod hex {
+    pub fn encode(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+    pub fn decode(hex: &str) -> Result<Vec<u8>, String> {
+        if hex.len() % 2 != 0 {
+            return Err("Invalid hex length".into());
+        }
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| e.to_string()))
+            .collect()
+    }
 }
