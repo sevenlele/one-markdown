@@ -75,6 +75,17 @@ pub fn to_html(markdown: &str) -> String {
 /// Generate a complete standalone HTML document for export.
 pub fn to_standalone_html(markdown: &str, title: &str, custom_css: &str) -> String {
     let body = to_html(markdown);
+    let doc = crate::core::frontmatter::parse(markdown);
+    let meta = if doc.has_frontmatter {
+        let mut m = String::new();
+        if let Some(t) = &doc.frontmatter.title { m.push_str(&format!("<meta name=\"title\" content=\"{}\">\n", t)); }
+        if let Some(d) = &doc.frontmatter.description { m.push_str(&format!("<meta name=\"description\" content=\"{}\">\n", d)); }
+        if let Some(a) = &doc.frontmatter.author { m.push_str(&format!("<meta name=\"author\" content=\"{}\">\n", a)); }
+        if let Some(t) = &doc.frontmatter.tags { m.push_str(&format!("<meta name=\"keywords\" content=\"{}\">\n", t.join(", "))); }
+        m
+    } else {
+        String::new()
+    };
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -82,6 +93,7 @@ pub fn to_standalone_html(markdown: &str, title: &str, custom_css: &str) -> Stri
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title}</title>
+{meta}
 <style>
 :root {{
   --bg: #0d1117; --bg2: #161b22; --border: #30363d;
