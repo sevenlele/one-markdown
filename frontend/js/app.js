@@ -857,6 +857,7 @@ function bindSettings() {
       aiEndpoint: $('#set-ai-endpoint').value,
       aiKey: $('#set-ai-key').value,
       aiModel: $('#set-ai-model').value,
+      customCss: $('#set-custom-css').value,
     };
 
     // Map select value to enum
@@ -891,6 +892,7 @@ async function loadSettingsIntoUI() {
     $('#set-ai-endpoint').value = s.aiEndpoint || '';
     $('#set-ai-key').value = s.aiKey || '';
     $('#set-ai-model').value = s.aiModel || '';
+    $('#set-custom-css').value = s.customCss || '';
 
     // Apply
     editor.style.fontSize = (s.fontSize || 15) + 'px';

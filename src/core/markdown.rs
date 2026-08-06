@@ -73,7 +73,7 @@ pub fn to_html(markdown: &str) -> String {
 }
 
 /// Generate a complete standalone HTML document for export.
-pub fn to_standalone_html(markdown: &str, title: &str) -> String {
+pub fn to_standalone_html(markdown: &str, title: &str, custom_css: &str) -> String {
     let body = to_html(markdown);
     format!(
         r#"<!DOCTYPE html>
@@ -109,6 +109,7 @@ hr {{ border:none; border-top:1px solid var(--border); margin:2em 0; }}
 img {{ max-width:100%; border-radius:6px; }}
 ul.contains-task-list {{ list-style:none; padding-left:0; }}
 strong {{ color:#e6edf3; }}
+{custom_css}
 </style>
 </head>
 <body>{body}</body>

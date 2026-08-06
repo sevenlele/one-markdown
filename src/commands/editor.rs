@@ -43,6 +43,10 @@ pub struct Settings {
     pub ai_model: String,
     #[serde(default)]
     pub keybindings: HashMap<String, String>,
+    #[serde(default)]
+    pub custom_css: String,
+    #[serde(default)]
+    pub export_template: String,
 }
 
 impl Default for Settings {
@@ -57,6 +61,8 @@ impl Default for Settings {
             ai_key: String::new(),
             ai_model: String::new(),
             keybindings: HashMap::new(),
+            custom_css: String::new(),
+            export_template: String::new(),
         }
     }
 }
@@ -217,7 +223,11 @@ pub fn get_recent_files(state: tauri::State<Mutex<EditorState>>) -> Result<Vec<S
 
 /// Async — export can be slow for large docs.
 #[tauri::command]
-pub async fn export_html(content: String, path: String) -> Result<String, String> {
+pub async fn export_html(
+    content: String,
+    path: String,
+    state: tauri::State<'_, Mutex<EditorState>>,
+) -> Result<String, String> {
     let doc = frontmatter::parse(&content);
     let title = doc.frontmatter.title.unwrap_or_else(|| {
         PathBuf::from(&path)
@@ -225,7 +235,11 @@ pub async fn export_html(content: String, path: String) -> Result<String, String
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "Document".into())
     });
-    let html = markdown::to_standalone_html(&doc.body, &title);
+    let custom_css = {
+        let s = state.lock().map_err(|e| e.to_string())?;
+        s.settings.custom_css.clone()
+    };
+    let html = markdown::to_standalone_html(&doc.body, &title, &custom_css);
     tokio::fs::write(&path, &html)
         .await
         .map_err(|e| e.to_string())?;
