@@ -31,8 +31,10 @@ fn main() {
             commands::editor::new_file,
             commands::editor::get_recent_files,
             commands::editor::export_html,
-            // Markdown
+            // Markdown & Code rendering
             commands::editor::render_markdown,
+            commands::editor::render_code,
+            commands::editor::detect_file_type,
             // Image paste
             commands::editor::save_pasted_image,
             // AI

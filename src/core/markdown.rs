@@ -129,6 +129,13 @@ strong {{ color:#e6edf3; }}
     )
 }
 
+// ─── Syntax Highlighting (public) ──────────────────────────────────
+
+/// Highlight code with syntax coloring. Used by render_code for non-markdown files.
+pub fn highlight_code(code: &str, lang: &str) -> String {
+    highlight(code, lang)
+}
+
 // ─── Internal ──────────────────────────────────────────────────────
 
 fn highlight(code: &str, lang: &str) -> String {

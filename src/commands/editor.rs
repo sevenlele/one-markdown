@@ -9,6 +9,99 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 use std::thread;
 use tauri::Emitter;
+use std::ffi::OsStr;
+
+// ─── File Type Detection ─────────────────────────────────────────────
+
+/// File type classification for multi-format support.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FileType {
+    Markdown,
+    Code,
+    Text,
+    Json,
+    Yaml,
+    Csv,
+    Html,
+    Xml,
+    Toml,
+}
+
+impl Default for FileType {
+    fn default() -> Self {
+        FileType::Markdown
+    }
+}
+
+impl FileType {
+    pub fn from_extension(ext: &str) -> Self {
+        match ext.to_lowercase().as_str() {
+            "md" | "markdown" | "mdx" => FileType::Markdown,
+            "json" | "jsonc" | "json5" => FileType::Json,
+            "yml" | "yaml" => FileType::Yaml,
+            "csv" | "tsv" => FileType::Csv,
+            "html" | "htm" | "xhtml" => FileType::Html,
+            "xml" | "svg" | "xsl" | "xsd" | "rss" | "atom" => FileType::Xml,
+            "toml" => FileType::Toml,
+            "txt" | "log" | "ini" | "cfg" | "conf" | "env" | "gitignore"
+            | "dockerignore" | "editorconfig" => FileType::Text,
+            "rs" | "py" | "js" | "ts" | "jsx" | "tsx" | "go" | "java" | "c"
+            | "cpp" | "h" | "hpp" | "cs" | "rb" | "php" | "swift" | "kt"
+            | "scala" | "r" | "lua" | "pl" | "pm" | "sh" | "bash" | "zsh"
+            | "fish" | "ps1" | "bat" | "cmd" | "sql" | "graphql" | "proto"
+            | "dart" | "zig" | "nim" | "ex" | "exs" | "erl" | "hs"
+            | "ml" | "clj" | "cljs" | "lisp" | "el" | "jl" | "m" | "mm"
+            | "vue" | "svelte" | "astro" | "css" | "scss" | "sass" | "less" => FileType::Code,
+            _ => FileType::Text,
+        }
+    }
+
+    pub fn from_path(path: &str) -> Self {
+        let p = PathBuf::from(path);
+        let ext = p.extension().and_then(OsStr::to_str).unwrap_or("");
+        let name = p.file_name().and_then(OsStr::to_str).unwrap_or("");
+        match name {
+            "Makefile" | "CMakeLists.txt" | "Dockerfile" | "Vagrantfile"
+            | "Rakefile" | "Gemfile" | "Podfile" => FileType::Code,
+            _ => Self::from_extension(ext),
+        }
+    }
+
+    pub fn syntax_token(&self, path: &str) -> &str {
+        let ext = PathBuf::from(path)
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or("")
+            .to_lowercase();
+        match ext.as_str() {
+            "rs" => "rust", "py" => "python", "js" | "mjs" | "cjs" => "javascript",
+            "ts" | "mts" | "cts" => "typescript", "jsx" => "jsx", "tsx" => "tsx",
+            "go" => "go", "java" => "java", "c" | "h" => "c",
+            "cpp" | "cc" | "hpp" => "c++", "cs" => "c#", "rb" => "ruby",
+            "php" => "php", "swift" => "swift", "kt" | "kts" => "kotlin",
+            "scala" => "scala", "r" => "r", "lua" => "lua",
+            "pl" | "pm" => "perl", "sh" | "bash" | "zsh" => "bash",
+            "fish" => "fish", "ps1" => "powershell", "bat" | "cmd" => "batchfile",
+            "sql" => "sql", "graphql" | "gql" => "graphql", "proto" => "protobuf",
+            "dart" => "dart", "zig" => "zig", "nim" => "nim",
+            "ex" | "exs" => "elixir", "erl" => "erlang", "hs" => "haskell",
+            "ml" | "mli" => "ocaml", "clj" | "cljs" => "clojure",
+            "lisp" => "lisp", "el" => "emacs lisp", "jl" => "julia",
+            "m" | "mm" => "objective-c", "vue" => "vue", "svelte" => "svelte",
+            "css" => "css", "scss" | "sass" => "scss", "less" => "less",
+            "json" | "jsonc" => "json", "yml" | "yaml" => "yaml",
+            "toml" => "toml", "xml" | "svg" => "xml",
+            "html" | "htm" => "html", "csv" | "tsv" => "csv",
+            "md" | "markdown" => "markdown", "dockerfile" => "dockerfile",
+            _ => "plain text",
+        }
+    }
+
+    pub fn is_markdown(&self) -> bool {
+        matches!(self, FileType::Markdown)
+    }
+}
 
 // ─── State ────────────────────────────────────────────────────────────
 
@@ -91,6 +184,10 @@ pub struct FileInfo {
     pub content: String,
     pub frontmatter: frontmatter::Frontmatter,
     pub modified: bool,
+    #[serde(default)]
+    pub file_type: FileType,
+    #[serde(default)]
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,12 +245,38 @@ pub async fn open_file(
 
     s.current_path = Some(path_buf);
 
+    let file_type = FileType::from_path(&path);
+    let language = file_type.syntax_token(&path).to_string();
+
     Ok(FileInfo {
         path,
         name,
         content,
         frontmatter: doc.frontmatter,
         modified: false,
+        file_type,
+        language,
+    })
+}
+
+/// Render code content with syntax highlighting (for non-markdown files).
+#[tauri::command]
+pub fn render_code(content: String, language: String) -> Result<RenderResult, String> {
+    let html = markdown::highlight_code(&content, &language);
+    let wrapped_html = format!(
+        r#"<pre class="code-preview"><code class="language-{}">{}</code></pre>"#,
+        language, html
+    );
+
+    let word_count = content.split_whitespace().count();
+    let char_count = content.chars().count();
+    let line_count = content.lines().count();
+
+    Ok(RenderResult {
+        html: wrapped_html,
+        word_count,
+        char_count,
+        line_count,
     })
 }
 
@@ -208,7 +331,17 @@ pub fn new_file(state: tauri::State<Mutex<EditorState>>) -> Result<FileInfo, Str
         content: String::new(),
         frontmatter: frontmatter::Frontmatter::default(),
         modified: false,
+        file_type: FileType::Markdown,
+        language: "markdown".into(),
     })
+}
+
+/// Detect file type from path without opening the file.
+#[tauri::command]
+pub fn detect_file_type(path: String) -> Result<(FileType, String), String> {
+    let ft = FileType::from_path(&path);
+    let lang = ft.syntax_token(&path).to_string();
+    Ok((ft, lang))
 }
 
 #[tauri::command]

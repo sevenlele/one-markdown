@@ -1,4 +1,4 @@
-// OneMarkdown — Frontend (Phase 1)
+// OneMarkdown — Frontend (Multi-Format Support)
 const { invoke } = window.__TAURI__.core;
 const { open, save } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
@@ -11,11 +11,16 @@ let autoSaveTimer = null;
 let currentTheme = localStorage.getItem('theme') || 'dark';
 let aiStreaming = false;
 let aiStreamText = '';
-let aiContinuation = false; // true when AI continuation is active
-let continueBox = null;     // floating box for continuation
-let customKeys = {};          // user keybindings from settings
-let aiChatMode = false;       // true = chat mode, false = actions mode
-let aiChatHistory = [];       // [{role, content}]
+let aiContinuation = false;
+let continueBox = null;
+let customKeys = {};
+let aiChatMode = false;
+let aiChatHistory = [];
+
+// Multi-format state
+let currentFileType = 'markdown'; // 'markdown' | 'code' | 'text' | 'json' | 'yaml' | 'csv' | 'html' | 'xml' | 'toml'
+let currentLanguage = 'markdown';
+let previewMode = 'preview'; // 'preview' | 'source' — toggle between rendered and source view
 
 // ─── DOM ──────────────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -29,12 +34,56 @@ const aiStopBtn = $('#ai-stop');
 
 const status = {
   file:     $('#st-file'),
+  filetype: $('#st-filetype'),
   words:    $('#st-words'),
   chars:    $('#st-chars'),
   lines:    $('#st-lines'),
   readTime: $('#st-read-time'),
   cursor:   $('#st-cursor'),
   saved:    $('#st-auto-saved'),
+};
+
+// ─── Supported file extensions for open dialog ────────────────────
+const SUPPORTED_EXTENSIONS = [
+  { name: 'All Supported', extensions: [
+    'md', 'markdown', 'mdx', 'txt', 'log', 'json', 'jsonc', 'json5',
+    'yml', 'yaml', 'toml', 'csv', 'tsv', 'html', 'htm', 'xhtml',
+    'xml', 'svg', 'rss', 'atom', 'xsl',
+    'rs', 'py', 'js', 'ts', 'jsx', 'tsx', 'go', 'java', 'c', 'cpp',
+    'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'r',
+    'lua', 'pl', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
+    'sql', 'graphql', 'proto', 'dart', 'zig', 'nim', 'ex', 'exs',
+    'erl', 'hs', 'ml', 'clj', 'cljs', 'lisp', 'el', 'jl',
+    'vue', 'svelte', 'astro', 'css', 'scss', 'sass', 'less',
+    'ini', 'cfg', 'conf', 'env', 'gitignore', 'dockerignore',
+    'editorconfig', 'makefile', 'cmake', 'gradle', 'dockerfile'
+  ]},
+  { name: 'Markdown', extensions: ['md', 'markdown', 'mdx'] },
+  { name: 'Code', extensions: [
+    'rs', 'py', 'js', 'ts', 'jsx', 'tsx', 'go', 'java', 'c', 'cpp',
+    'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'r',
+    'lua', 'pl', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
+    'sql', 'graphql', 'proto', 'dart', 'zig', 'nim', 'ex', 'exs',
+    'erl', 'hs', 'ml', 'clj', 'cljs', 'lisp', 'el', 'jl',
+    'vue', 'svelte', 'astro', 'css', 'scss', 'sass', 'less'
+  ]},
+  { name: 'Data', extensions: ['json', 'jsonc', 'json5', 'yml', 'yaml', 'toml', 'csv', 'tsv', 'xml'] },
+  { name: 'Web', extensions: ['html', 'htm', 'xhtml', 'css', 'scss', 'js', 'ts'] },
+  { name: 'Text', extensions: ['txt', 'log', 'ini', 'cfg', 'conf', 'env'] },
+  { name: 'All Files', extensions: ['*'] },
+];
+
+// ─── File type display info ───────────────────────────────────────
+const FILE_TYPE_INFO = {
+  markdown: { label: 'Markdown', icon: '📝', color: '#58a6ff' },
+  code:     { label: 'Code',     icon: '💻', color: '#7ee787' },
+  text:     { label: 'Text',     icon: '📄', color: '#8b949e' },
+  json:     { label: 'JSON',     icon: '📋', color: '#f0883e' },
+  yaml:     { label: 'YAML',     icon: '📋', color: '#f0883e' },
+  csv:      { label: 'CSV',      icon: '📊', color: '#d2a8ff' },
+  html:     { label: 'HTML',     icon: '🌐', color: '#f97583' },
+  xml:      { label: 'XML',      icon: '📋', color: '#f0883e' },
+  toml:     { label: 'TOML',     icon: '📋', color: '#f0883e' },
 };
 
 // ─── Init ─────────────────────────────────────────────────────────
@@ -65,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
 - **AI-native** — explain, rewrite, translate, summarize in-place
 - **Fast** — Rust + Tauri, launches in milliseconds
 - **Portable** — images embed as base64 or save to \`.assets/\`
+- **Multi-format** — open code, JSON, YAML, CSV, HTML, and more
 
 ## Quick Start
 
@@ -73,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
 3. Paste images directly — they're saved automatically
 4. Press \`Ctrl+L\` to open AI assistant
 5. Press \`Ctrl+F\` to search, \`Ctrl+H\` to search & replace
+6. Press \`Ctrl+M\` to toggle preview/source mode
 
 ## Code Example
 
@@ -94,18 +145,19 @@ fn main() {
 | Ctrl+L | AI Assistant |
 | Ctrl+B | Bold |
 | Ctrl+I | Italic |
+| Ctrl+M | Toggle Mode |
 
 ---
 
 ## Math
 
-Inline math: $E = mc^2$ and $\sum_{i=1}^{n} x_i = x_1 + x_2 + \cdots + x_n$
+Inline math: $E = mc^2$ and $\\sum_{i=1}^{n} x_i = x_1 + x_2 + \\cdots + x_n$
 
 Block math:
 
-$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+$$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
 
-$$\frac{n!}{k!(n-k)!} = \binom{n}{k}$$
+$$\\frac{n!}{k!(n-k)!} = \\binom{n}{k}$$
 
 ## Callouts
 
@@ -122,9 +174,72 @@ $$\frac{n!}{k!(n-k)!} = \binom{n}{k}$$
 
 *Start writing — one file is all you need.*`;
 
+  setFileType('markdown', 'markdown');
   renderPreview();
   updateStatus();
 });
+
+// ─── File Type Management ─────────────────────────────────────────
+
+function setFileType(type, language) {
+  currentFileType = type;
+  currentLanguage = language;
+
+  // Update badge
+  const badge = $('#file-type-badge');
+  const info = FILE_TYPE_INFO[type] || FILE_TYPE_INFO.text;
+  if (badge) {
+    badge.textContent = info.icon + ' ' + info.label;
+    badge.style.color = info.color;
+    badge.style.display = currentPath ? 'inline' : 'none';
+  }
+
+  // Update status bar filetype
+  if (status.filetype) {
+    status.filetype.textContent = info.label;
+  }
+
+  // Update mode toggle button
+  updateModeButton();
+
+  // Show/hide markdown-only toolbar buttons
+  const mdOnlyBtns = ['btn-bold', 'btn-italic', 'btn-strike', 'btn-code',
+    'btn-h1', 'btn-h2', 'btn-h3', 'btn-link', 'btn-image', 'btn-list',
+    'btn-olist', 'btn-quote', 'btn-hr', 'btn-table', 'btn-ai-edit'];
+  const isMd = type === 'markdown';
+  mdOnlyBtns.forEach(id => {
+    const el = $('#' + id);
+    if (el) el.style.display = isMd ? '' : 'none';
+  });
+
+  // Update pane label
+  const previewLabel = $('#preview-pane .pane-label');
+  if (previewLabel) {
+    previewLabel.textContent = type === 'markdown' ? 'Preview' : (previewMode === 'preview' ? 'Preview' : 'Source');
+  }
+}
+
+function isMarkdownType() {
+  return currentFileType === 'markdown';
+}
+
+function updateModeButton() {
+  const btn = $('#btn-mode');
+  if (!btn) return;
+  if (isMarkdownType()) {
+    btn.textContent = previewMode === 'preview' ? '👁' : '📝';
+    btn.title = previewMode === 'preview' ? 'Show source (Ctrl+M)' : 'Show preview (Ctrl+M)';
+  } else {
+    btn.textContent = previewMode === 'preview' ? '📄' : '🎨';
+    btn.title = previewMode === 'preview' ? 'Show highlighted (Ctrl+M)' : 'Show raw (Ctrl+M)';
+  }
+}
+
+function togglePreviewMode() {
+  previewMode = previewMode === 'preview' ? 'source' : 'preview';
+  updateModeButton();
+  renderPreview();
+}
 
 // ─── Theme ────────────────────────────────────────────────────────
 function applyTheme(theme) {
@@ -172,15 +287,14 @@ function bindEditor() {
       }
     }
 
-    // Enter — auto-continue lists
-    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+    // Enter — auto-continue lists (only for markdown)
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && isMarkdownType()) {
       const s = editor.selectionStart;
       const lineStart = editor.value.lastIndexOf('\n', s - 1) + 1;
       const line = editor.value.substring(lineStart, s);
       const bulletMatch = line.match(/^(\s*)([-*+]|\d+\.)\s/);
       if (bulletMatch) {
         const trimmedLine = line.trim();
-        // If line is just a bullet with no content, remove it
         if (trimmedLine === '-' || trimmedLine === '*' || trimmedLine === '+' || /^\d+\.$/.test(trimmedLine)) {
           editor.setSelectionRange(lineStart, s);
           document.execCommand('insertText', false, '\n');
@@ -190,7 +304,6 @@ function bindEditor() {
         e.preventDefault();
         const indent = bulletMatch[1];
         const bullet = bulletMatch[2];
-        // Increment number for ordered lists
         let newBullet = bullet;
         if (/^\d+\.$/.test(bullet)) {
           newBullet = (parseInt(bullet) + 1) + '.';
@@ -200,8 +313,9 @@ function bindEditor() {
     }
   });
 
-  // Image paste
+  // Image paste (only for markdown)
   editor.addEventListener('paste', async (e) => {
+    if (!isMarkdownType()) return;
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of items) {
@@ -254,7 +368,6 @@ function processCallouts() {
     const firstP = bq.querySelector('p');
     if (!firstP) return;
     const text = firstP.textContent || '';
-    // Match [!type] or [!type] Title
     const match = text.match(/^\[!([a-zA-Z]+)\]\s*(.*)/);
     if (!match) return;
 
@@ -264,7 +377,6 @@ function processCallouts() {
 
     const title = match[2] || meta.label;
 
-    // Build callout div
     const callout = document.createElement('div');
     callout.className = 'callout callout-' + type;
 
@@ -275,7 +387,6 @@ function processCallouts() {
     const body = document.createElement('div');
     body.className = 'callout-body';
 
-    // Collect body content: all children after the first <p> (the [!type] line)
     const children = Array.from(bq.children);
     let hasBody = false;
     for (let i = 1; i < children.length; i++) {
@@ -351,29 +462,53 @@ async function renderMermaidDiagrams() {
 
 // ─── Render ───────────────────────────────────────────────────────
 async function renderPreview() {
-  try {
-    const res = await invoke('render_markdown', { content: editor.value });
-    preview.innerHTML = res.html;
-    processCallouts();
-    processFootnotes(preview);
-    renderMath(preview);
-    generateTOC(preview);
-  } catch (err) {
-    preview.innerHTML = `<p style="color:var(--red)">Render error: ${err}</p>`;
+  if (previewMode === 'source' && !isMarkdownType()) {
+    // Source view with syntax highlighting for code files
+    try {
+      const res = await invoke('render_code', {
+        content: editor.value,
+        language: currentLanguage,
+      });
+      preview.innerHTML = res.html;
+    } catch (err) {
+      // Fallback to plain text display
+      preview.innerHTML = `<pre class="code-preview"><code>${escapeHtml(editor.value)}</code></pre>`;
+    }
+    return;
   }
-  await renderMermaidDiagrams();
+
+  if (isMarkdownType()) {
+    // Markdown preview
+    try {
+      const res = await invoke('render_markdown', { content: editor.value });
+      preview.innerHTML = res.html;
+      processCallouts();
+      processFootnotes(preview);
+      renderMath(preview);
+      generateTOC(preview);
+    } catch (err) {
+      preview.innerHTML = `<p style="color:var(--red)">Render error: ${err}</p>`;
+    }
+    await renderMermaidDiagrams();
+  } else {
+    // For non-markdown files, show syntax-highlighted code
+    try {
+      const res = await invoke('render_code', {
+        content: editor.value,
+        language: currentLanguage,
+      });
+      preview.innerHTML = res.html;
+    } catch (err) {
+      preview.innerHTML = `<pre class="code-preview"><code>${escapeHtml(editor.value)}</code></pre>`;
+    }
+  }
 }
 
 // ─── Footnotes processing ───────────────────────────────────────
 function processFootnotes(container) {
-  // Find footnote references: <sup><a href="#fn1">1</a></sup>
-  // pulldown-cmark generates: <sup class="footnote-reference"><a href="#fn1">1</a></sup>
-  // Also handle raw markdown: text[^1] rendered as sup with [^1]
-
   const refs = container.querySelectorAll('sup a[href^="#fn"]');
   if (refs.length === 0) return;
 
-  // Find footnote definitions (usually at the bottom)
   const allParagraphs = container.querySelectorAll('p');
   const fnDefs = [];
 
@@ -389,7 +524,6 @@ function processFootnotes(container) {
 
   if (fnDefs.length === 0) return;
 
-  // Build footnotes section
   const section = document.createElement('div');
   section.className = 'footnotes';
   section.innerHTML = '<hr><ol class="footnotes-list">' +
@@ -398,13 +532,9 @@ function processFootnotes(container) {
     ).join('') +
     '</ol>';
 
-  // Remove original definitions
   fnDefs.forEach(fn => fn.element.remove());
-
-  // Add footnotes section at the end
   container.appendChild(section);
 
-  // Update references with proper IDs and links
   refs.forEach(ref => {
     const href = ref.getAttribute('href');
     const num = href.replace('#fn', '');
@@ -415,19 +545,16 @@ function processFootnotes(container) {
 
 // ─── KaTeX math rendering ──────────────────────────────────────
 function renderMath(element) {
-  if (typeof katex === 'undefined') return; // KaTeX not yet loaded
+  if (typeof katex === 'undefined') return;
 
-  // Tags whose content must never be treated as math
   const SKIP_TAGS = new Set(['CODE', 'PRE', 'SCRIPT', 'STYLE', 'TEXTAREA', 'KATEX']);
 
-  // Collect all text nodes outside skipped elements
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (node.nodeValue.indexOf('$') === -1) return NodeFilter.FILTER_REJECT;
       let el = node.parentElement;
       while (el && el !== element) {
         if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
-        // Skip already-rendered KaTeX
         if (el.classList && el.classList.contains('katex')) return NodeFilter.FILTER_REJECT;
         el = el.parentElement;
       }
@@ -435,19 +562,14 @@ function renderMath(element) {
     },
   });
 
-  // Collect nodes first (walker is live and will break if we mutate)
   const nodes = [];
   let n;
   while ((n = walker.nextNode())) nodes.push(n);
 
   for (const textNode of nodes) {
     const text = textNode.nodeValue;
-    // Skip if no dollar signs left (may have been partially processed)
     if (text.indexOf('$') === -1) continue;
 
-    // Build a regex that matches \$\$...\$\$ (block) or $...$ (inline)
-    // but NOT \\$ (escaped dollars)
-    // We process the whole string and collect replacements
     const re = /(\$\$)((?:[^$]|\\\$)+?)\1|(?<!\\)\$((?:[^$\n]|\\\$)+?)\$/g;
     let match;
     let lastIndex = 0;
@@ -456,14 +578,12 @@ function renderMath(element) {
 
     while ((match = re.exec(text)) !== null) {
       hasMath = true;
-      // Add text before this match
       if (match.index > lastIndex) {
         fragments.push(document.createTextNode(text.slice(lastIndex, match.index)));
       }
 
       const isBlock = match[1] === '$$';
       const raw = isBlock ? match[2] : match[3];
-      // Unescape \$ to $
       const tex = raw.replace(/\\\$/g, '$');
 
       try {
@@ -476,7 +596,6 @@ function renderMath(element) {
         span.innerHTML = html;
         fragments.push(isBlock ? wrapBlockMath(span) : span);
       } catch (e) {
-        // On error, leave the original text
         fragments.push(document.createTextNode(isBlock ? `$$${raw}$$` : `$${raw}$`));
       }
 
@@ -485,12 +604,10 @@ function renderMath(element) {
 
     if (!hasMath) continue;
 
-    // Remaining text after last match
     if (lastIndex < text.length) {
       fragments.push(document.createTextNode(text.slice(lastIndex)));
     }
 
-    // Replace the original text node with fragments
     const parent = textNode.parentNode;
     if (!parent) continue;
     for (const frag of fragments) {
@@ -511,10 +628,6 @@ function wrapBlockMath(innerSpan) {
 }
 
 // ─── Table of Contents ───────────────────────────────────────────
-/**
- * Slugify a string into a URL-safe ID.
- * Lowercase, strip non-alphanumerics (keep CJK), collapse hyphens.
- */
 function slugify(text) {
   return text
     .toLowerCase()
@@ -524,12 +637,7 @@ function slugify(text) {
     .replace(/^-+|-+$/g, '');
 }
 
-/**
- * Find [toc] markers in the preview and replace them with a
- * clickable table of contents built from all h1–h6 headings.
- */
 function generateTOC(container) {
-  // Collect all headings (skip any inside <pre> / code blocks)
   const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
   const filtered = [];
   for (const h of headings) {
@@ -539,7 +647,6 @@ function generateTOC(container) {
 
   if (filtered.length === 0) return;
 
-  // Assign unique IDs to every heading
   const usedIds = {};
   for (const h of filtered) {
     if (h.id) continue;
@@ -552,7 +659,6 @@ function generateTOC(container) {
     h.id = id;
   }
 
-  // Find [toc] markers — appear as <p>[toc]</p> (case-insensitive, trimmed)
   const tocMarkers = [];
   for (const el of container.children) {
     if (el.tagName === 'P' && el.textContent.trim().toLowerCase() === '[toc]') {
@@ -561,7 +667,6 @@ function generateTOC(container) {
   }
   if (tocMarkers.length === 0) return;
 
-  // Build nested list
   const tocNav = document.createElement('nav');
   tocNav.className = 'toc';
   tocNav.setAttribute('aria-label', 'Table of Contents');
@@ -574,7 +679,6 @@ function generateTOC(container) {
   const list = document.createElement('ul');
   list.className = 'toc-list';
 
-  // Track nesting: stack of { level, ul } pairs
   const stack = [{ level: 0, ul: list }];
 
   for (const h of filtered) {
@@ -592,7 +696,6 @@ function generateTOC(container) {
     });
     li.appendChild(a);
 
-    // Pop back to the correct parent level
     while (stack.length > 1 && stack[stack.length - 1].level >= level) {
       stack.pop();
     }
@@ -612,7 +715,6 @@ function generateTOC(container) {
 
   tocNav.appendChild(list);
 
-  // Replace each [toc] marker with the TOC (clone for multiples)
   for (let i = 0; i < tocMarkers.length; i++) {
     const clone = i === 0 ? tocNav : tocNav.cloneNode(true);
     if (i > 0) {
@@ -632,162 +734,402 @@ function generateTOC(container) {
   }
 }
 
-// ─── Toolbar ──────────────────────────────────────────────────────
+// ─── Toolbar ─────────────────────────────────────────────────────
 function bindToolbar() {
-  $('#btn-new').onclick = newFile;
-  $('#btn-open').onclick = openFile;
-  $('#btn-save').onclick = saveFile;
-  $('#btn-export').onclick = exportHtml;
-  $('#btn-print').onclick = printPreview;
-  $('#btn-theme').onclick = () => applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
-
-  $('#btn-bold').onclick   = () => wrap('**', '**');
-  $('#btn-italic').onclick = () => wrap('*', '*');
-  $('#btn-strike').onclick = () => wrap('~~', '~~');
-  $('#btn-code').onclick   = () => {
-    const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-    sel.includes('\n') ? wrap('```\n', '\n```') : wrap('`', '`');
-  };
-  $('#btn-link').onclick  = insertLink;
-  $('#btn-image').onclick = () => insertText('![alt](url)');
-  $('#btn-h1').onclick    = () => linePrefix('# ');
-  $('#btn-h2').onclick    = () => linePrefix('## ');
-  $('#btn-h3').onclick    = () => linePrefix('### ');
-  $('#btn-list').onclick  = () => linePrefix('- ');
-  $('#btn-olist').onclick = () => linePrefix('1. ');
-  $('#btn-quote').onclick = () => linePrefix('> ');
-  $('#btn-hr').onclick    = () => insertText('\n---\n');
-  $('#btn-table').onclick = () => insertText('\n| Header | Header |\n|--------|--------|\n| Cell   | Cell   |\n');
+  $('#btn-new')?.addEventListener('click', newFile);
+  $('#btn-open')?.addEventListener('click', openFile);
+  $('#btn-save')?.addEventListener('click', saveFile);
+  $('#btn-bold')?.addEventListener('click', () => wrapSelection('**', '**'));
+  $('#btn-italic')?.addEventListener('click', () => wrapSelection('*', '*'));
+  $('#btn-strike')?.addEventListener('click', () => wrapSelection('~~', '~~'));
+  $('#btn-code')?.addEventListener('click', () => wrapSelection('`', '`'));
+  $('#btn-h1')?.addEventListener('click', () => prefixLine('# '));
+  $('#btn-h2')?.addEventListener('click', () => prefixLine('## '));
+  $('#btn-h3')?.addEventListener('click', () => prefixLine('### '));
+  $('#btn-link')?.addEventListener('click', insertLink);
+  $('#btn-image')?.addEventListener('click', insertImage);
+  $('#btn-list')?.addEventListener('click', () => prefixLine('- '));
+  $('#btn-olist')?.addEventListener('click', () => prefixLine('1. '));
+  $('#btn-quote')?.addEventListener('click', () => prefixLine('> '));
+  $('#btn-hr')?.addEventListener('click', () => insertText('\n---\n'));
+  $('#btn-table')?.addEventListener('click', insertTable);
+  $('#btn-export')?.addEventListener('click', exportHtml);
+  $('#btn-print')?.addEventListener('click', () => window.print());
+  $('#btn-theme')?.addEventListener('click', () => applyTheme(currentTheme === 'dark' ? 'light' : 'dark'));
+  $('#btn-mode')?.addEventListener('click', togglePreviewMode);
 }
 
-// ─── Search & Replace ─────────────────────────────────────────────
+async function newFile() {
+  if (isModified && !confirm('Unsaved changes. Continue?')) return;
+  try {
+    const info = await invoke('new_file');
+    editor.value = info.content;
+    currentPath = '';
+    isModified = false;
+    setFileType('markdown', 'markdown');
+    updateTitle();
+    renderPreview();
+    updateStatus();
+  } catch (err) {
+    console.error('New file error:', err);
+  }
+}
+
+async function openFile() {
+  if (isModified && !confirm('Unsaved changes. Continue?')) return;
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: SUPPORTED_EXTENSIONS,
+    });
+    if (!selected) return;
+
+    const info = await invoke('open_file', { path: selected });
+    editor.value = info.content;
+    currentPath = info.path;
+    isModified = false;
+
+    // Set file type from backend detection
+    const fileType = info.fileType || 'markdown';
+    const language = info.language || 'markdown';
+    setFileType(fileType, language);
+
+    updateTitle();
+    renderPreview();
+    updateStatus();
+    startFileWatcher(selected);
+  } catch (err) {
+    console.error('Open file error:', err);
+  }
+}
+
+async function saveFile() {
+  try {
+    if (currentPath) {
+      await invoke('save_file', { content: editor.value });
+    } else {
+      await saveFileAs();
+      return;
+    }
+    isModified = false;
+    updateTitle();
+    updateStatus();
+    showAutoSaved('Saved');
+  } catch (err) {
+    console.error('Save error:', err);
+  }
+}
+
+async function saveFileAs() {
+  try {
+    // Build save filters based on current file type
+    const saveFilters = getSaveFilters();
+    const selected = await save({
+      filters: saveFilters,
+    });
+    if (!selected) return;
+
+    await invoke('save_file_as', { path: selected, content: editor.value });
+    currentPath = selected;
+    isModified = false;
+
+    // Re-detect file type for new path
+    try {
+      const [fileType, language] = await invoke('detect_file_type', { path: selected });
+      setFileType(fileType, language);
+    } catch (e) {
+      // Fallback
+      setFileType('markdown', 'markdown');
+    }
+
+    updateTitle();
+    updateStatus();
+    showAutoSaved('Saved');
+    startFileWatcher(selected);
+  } catch (err) {
+    console.error('Save as error:', err);
+  }
+}
+
+function getSaveFilters() {
+  switch (currentFileType) {
+    case 'markdown':
+      return [
+        { name: 'Markdown', extensions: ['md', 'markdown'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+    case 'json':
+      return [
+        { name: 'JSON', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+    case 'yaml':
+      return [
+        { name: 'YAML', extensions: ['yml', 'yaml'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+    case 'toml':
+      return [
+        { name: 'TOML', extensions: ['toml'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+    case 'html':
+      return [
+        { name: 'HTML', extensions: ['html', 'htm'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+    case 'csv':
+      return [
+        { name: 'CSV', extensions: ['csv', 'tsv'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+    default:
+      return [
+        { name: 'Text', extensions: ['txt'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+  }
+}
+
+// ─── Text manipulation helpers ────────────────────────────────────
+function wrapSelection(before, after) {
+  const s = editor.selectionStart;
+  const e = editor.selectionEnd;
+  const selected = editor.value.substring(s, e);
+  const replacement = before + (selected || 'text') + after;
+  editor.setSelectionRange(s, e);
+  document.execCommand('insertText', false, replacement);
+  if (!selected) {
+    editor.setSelectionRange(s + before.length, s + before.length + 4);
+  }
+  editor.focus();
+}
+
+function prefixLine(prefix) {
+  const s = editor.selectionStart;
+  const lineStart = editor.value.lastIndexOf('\n', s - 1) + 1;
+  editor.setSelectionRange(lineStart, lineStart);
+  document.execCommand('insertText', false, prefix);
+  editor.focus();
+}
+
+function insertText(text) {
+  const s = editor.selectionStart;
+  editor.setSelectionRange(s, s);
+  document.execCommand('insertText', false, text);
+  editor.focus();
+}
+
+function insertLink() {
+  const s = editor.selectionStart;
+  const e = editor.selectionEnd;
+  const selected = editor.value.substring(s, e);
+  const text = selected || 'link text';
+  insertText(`[${text}](url)`);
+  if (!selected) {
+    editor.setSelectionRange(s + text.length + 3, s + text.length + 6);
+  }
+}
+
+function insertImage() {
+  insertText('![alt](url)');
+}
+
+function insertTable() {
+  insertText('\n| Header | Header |\n|--------|--------|\n| Cell   | Cell   |\n');
+}
+
+async function exportHtml() {
+  try {
+    const selected = await save({
+      filters: [{ name: 'HTML', extensions: ['html'] }],
+    });
+    if (!selected) return;
+    await invoke('export_html', { content: editor.value, path: selected });
+    showAutoSaved('Exported');
+  } catch (err) {
+    console.error('Export error:', err);
+  }
+}
+
+// ─── Status bar ──────────────────────────────────────────────────
+function updateStatus() {
+  const content = editor.value;
+  const words = content.split(/\s+/).filter(w => w.length > 0).length;
+  const chars = content.length;
+  const lines = content.lines?.length || content.split('\n').length;
+  const readTime = Math.max(1, Math.ceil(words / 200));
+
+  if (status.words) status.words.textContent = `${words} words`;
+  if (status.chars) status.chars.textContent = `${chars} chars`;
+  if (status.lines) status.lines.textContent = `${lines} lines`;
+  if (status.readTime) status.readTime.textContent = `~${readTime} min read`;
+  if (status.file) status.file.textContent = currentPath || 'No file';
+}
+
+function updateTitle() {
+  const name = currentPath ? currentPath.split(/[/\\]/).pop() : 'Untitled';
+  const mod = isModified ? '● ' : '';
+  if (fileTitle) fileTitle.textContent = mod + name;
+  document.title = mod + name + ' — OneMarkdown';
+}
+
+function updateCursorPos() {
+  const s = editor.selectionStart;
+  const text = editor.value.substring(0, s);
+  const lines = text.split('\n');
+  const ln = lines.length;
+  const col = lines[lines.length - 1].length + 1;
+  if (status.cursor) status.cursor.textContent = `Ln ${ln}, Col ${col}`;
+}
+
+function showAutoSaved(msg) {
+  if (status.saved) {
+    status.saved.textContent = msg;
+    status.saved.style.opacity = '1';
+    setTimeout(() => { status.saved.style.opacity = '0'; }, 2000);
+  }
+}
+
+// ─── Auto save ───────────────────────────────────────────────────
+function scheduleAutoSave() {
+  if (!currentPath) return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(async () => {
+    try {
+      await invoke('save_file', { content: editor.value });
+      isModified = false;
+      updateTitle();
+      showAutoSaved('Auto-saved');
+    } catch (err) {
+      console.error('Auto-save error:', err);
+    }
+  }, 3000);
+}
+
+// ─── Search & Replace ────────────────────────────────────────────
 function bindSearch() {
-  const bar = $('#search-bar');
-  const input = $('#search-input');
+  const searchBar = $('#search-bar');
+  const searchInput = $('#search-input');
   const replaceInput = $('#replace-input');
-  const countEl = $('#search-count');
-  const regexCb = $('#search-regex');
-  const caseCb = $('#search-case');
+  const searchCount = $('#search-count');
+  const searchRegex = $('#search-regex');
+  const searchCase = $('#search-case');
 
   let matches = [];
   let currentMatch = -1;
 
   function doSearch() {
-    const query = input.value;
-    if (!query) { matches = []; currentMatch = -1; countEl.textContent = '0/0'; clearHighlights(); return; }
+    const query = searchInput.value;
+    if (!query) { matches = []; currentMatch = -1; searchCount.textContent = '0/0'; clearHighlights(); return; }
 
-    const text = editor.value;
-    const useRegex = regexCb.checked;
-    const caseSensitive = caseCb.checked;
+    const flags = searchCase.checked ? 'g' : 'gi';
+    let re;
+    try {
+      re = searchRegex.checked ? new RegExp(query, flags) : new RegExp(escapeRegex(query), flags);
+    } catch { return; }
 
     matches = [];
-    try {
-      if (useRegex) {
-        const flags = caseSensitive ? 'g' : 'gi';
-        const re = new RegExp(query, flags);
-        let m;
-        while ((m = re.exec(text)) !== null) {
-          matches.push({ start: m.index, end: m.index + m[0].length });
-          if (matches.length > 10000) break; // safety
-        }
-      } else {
-        const searchIn = caseSensitive ? text : text.toLowerCase();
-        const searchFor = caseSensitive ? query : query.toLowerCase();
-        let pos = 0;
-        while ((pos = searchIn.indexOf(searchFor, pos)) !== -1) {
-          matches.push({ start: pos, end: pos + query.length });
-          pos += query.length;
-        }
-      }
-    } catch (e) {
-      // Invalid regex
+    let m;
+    while ((m = re.exec(editor.value)) !== null) {
+      matches.push({ start: m.index, end: m.index + m[0].length });
+      if (matches.length > 10000) break;
     }
 
     currentMatch = matches.length > 0 ? 0 : -1;
-    countEl.textContent = `${matches.length > 0 ? currentMatch + 1 : 0}/${matches.length}`;
-
-    if (currentMatch >= 0) goToMatch();
+    searchCount.textContent = `${matches.length > 0 ? currentMatch + 1 : 0}/${matches.length}`;
+    highlightCurrentMatch();
   }
 
-  function goToMatch() {
+  function highlightCurrentMatch() {
     if (currentMatch < 0 || currentMatch >= matches.length) return;
     const m = matches[currentMatch];
     editor.focus();
     editor.setSelectionRange(m.start, m.end);
     // Scroll into view
+    const lineHeight = parseInt(getComputedStyle(editor).lineHeight) || 20;
     const linesBefore = editor.value.substring(0, m.start).split('\n').length;
-    const lineHeight = parseFloat(getComputedStyle(editor).lineHeight);
     editor.scrollTop = (linesBefore - 5) * lineHeight;
-    countEl.textContent = `${currentMatch + 1}/${matches.length}`;
   }
 
-  function nextMatch() {
+  function clearHighlights() {
+    // Nothing to clear in textarea mode
+  }
+
+  searchInput?.addEventListener('input', doSearch);
+  searchRegex?.addEventListener('change', doSearch);
+  searchCase?.addEventListener('change', doSearch);
+
+  $('#search-next')?.addEventListener('click', () => {
     if (matches.length === 0) return;
     currentMatch = (currentMatch + 1) % matches.length;
-    goToMatch();
-  }
+    searchCount.textContent = `${currentMatch + 1}/${matches.length}`;
+    highlightCurrentMatch();
+  });
 
-  function prevMatch() {
+  $('#search-prev')?.addEventListener('click', () => {
     if (matches.length === 0) return;
     currentMatch = (currentMatch - 1 + matches.length) % matches.length;
-    goToMatch();
-  }
+    searchCount.textContent = `${currentMatch + 1}/${matches.length}`;
+    highlightCurrentMatch();
+  });
 
-  function replaceOne() {
+  $('#replace-one')?.addEventListener('click', () => {
     if (currentMatch < 0) return;
     const m = matches[currentMatch];
     const replacement = replaceInput.value;
     editor.setSelectionRange(m.start, m.end);
     document.execCommand('insertText', false, replacement);
-    // Re-search after replace
     doSearch();
-  }
+  });
 
-  function replaceAll() {
+  $('#replace-all')?.addEventListener('click', () => {
     if (matches.length === 0) return;
+    const query = searchInput.value;
     const replacement = replaceInput.value;
-    // Replace from end to start to preserve positions
-    for (let i = matches.length - 1; i >= 0; i--) {
-      const m = matches[i];
-      editor.setSelectionRange(m.start, m.end);
-      document.execCommand('insertText', false, replacement);
-    }
+    const flags = searchCase.checked ? 'g' : 'gi';
+    let re;
+    try {
+      re = searchRegex.checked ? new RegExp(query, flags) : new RegExp(escapeRegex(query), flags);
+    } catch { return; }
+    editor.value = editor.value.replace(re, replacement);
+    isModified = true;
     doSearch();
-  }
-
-  function clearHighlights() {
-    // Native selection is enough
-  }
-
-  // Event bindings
-  input.addEventListener('input', doSearch);
-  regexCb.addEventListener('change', doSearch);
-  caseCb.addEventListener('change', doSearch);
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.shiftKey ? prevMatch() : nextMatch(); }
-    if (e.key === 'Escape') { bar.classList.add('hidden'); editor.focus(); }
+    renderPreview();
+    updateStatus();
   });
 
-  replaceInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') replaceOne();
-    if (e.key === 'Escape') { bar.classList.add('hidden'); editor.focus(); }
+  $('#search-close')?.addEventListener('click', () => {
+    searchBar.classList.add('hidden');
+    editor.focus();
   });
 
-  $('#search-next').onclick = nextMatch;
-  $('#search-prev').onclick = prevMatch;
-  $('#search-close').onclick = () => { bar.classList.add('hidden'); editor.focus(); };
-  $('#replace-one').onclick = replaceOne;
-  $('#replace-all').onclick = replaceAll;
+  // Expose toggle
+  window.toggleSearch = () => {
+    searchBar.classList.toggle('hidden');
+    if (!searchBar.classList.contains('hidden')) {
+      searchInput.focus();
+      const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+      if (sel) searchInput.value = sel;
+      doSearch();
+    }
+  };
 
-  // Expose for shortcuts
-  window._searchBar = bar;
-  window._searchInput = input;
-  window._replaceInput = replaceInput;
-  window._doSearch = doSearch;
+  window.toggleReplace = () => {
+    searchBar.classList.toggle('hidden');
+    const replaceRow = $('#replace-row');
+    if (replaceRow) replaceRow.style.display = '';
+    if (!searchBar.classList.contains('hidden')) {
+      searchInput.focus();
+    }
+  };
 }
 
-// ─── Recent files ─────────────────────────────────────────────────
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ─── Recent files ────────────────────────────────────────────────
 function bindRecent() {
   const panel = $('#recent-panel');
   const list = $('#recent-list');
@@ -795,61 +1137,62 @@ function bindRecent() {
   async function showRecent() {
     try {
       const files = await invoke('get_recent_files');
+      list.innerHTML = '';
       if (files.length === 0) {
-        list.innerHTML = '<div class="panel-empty">No recent files</div>';
+        list.innerHTML = '<div style="padding:12px;color:var(--text2)">No recent files</div>';
       } else {
-        list.innerHTML = files.map((f, i) => {
+        files.forEach(f => {
+          const item = document.createElement('div');
+          item.className = 'recent-item';
           const name = f.split(/[/\\]/).pop();
-          return `<div class="panel-item" data-path="${f}" data-idx="${i}">
-            <span class="item-name" title="${f}">${name}</span>
-            <span class="item-path">${f}</span>
-          </div>`;
-        }).join('');
-
-        list.querySelectorAll('.panel-item').forEach(el => {
-          el.onclick = async () => {
-            const path = el.dataset.path;
+          item.innerHTML = `<span class="recent-name">${escapeHtml(name)}</span><span class="recent-path">${escapeHtml(f)}</span>`;
+          item.addEventListener('click', async () => {
             panel.classList.add('hidden');
+            if (isModified && !confirm('Unsaved changes. Continue?')) return;
             try {
-              const info = await invoke('open_file', { path });
+              const info = await invoke('open_file', { path: f });
               editor.value = info.content;
               currentPath = info.path;
               isModified = false;
-              status.file.textContent = info.path;
+              const fileType = info.fileType || 'markdown';
+              const language = info.language || 'markdown';
+              setFileType(fileType, language);
               updateTitle();
               renderPreview();
               updateStatus();
-              startWatching(info.path);
+              startFileWatcher(f);
             } catch (err) {
-              alert(`Cannot open: ${err}`);
+              console.error('Open recent error:', err);
             }
-          };
+          });
+          list.appendChild(item);
         });
       }
+      panel.classList.toggle('hidden');
     } catch (err) {
-      list.innerHTML = `<div class="panel-empty">Error: ${err}</div>`;
+      console.error('Recent files error:', err);
     }
-
-    panel.classList.toggle('hidden');
   }
 
-  $('#btn-recent').onclick = showRecent;
-  $('#recent-close').onclick = () => panel.classList.add('hidden');
+  $('#btn-recent')?.addEventListener('click', showRecent);
+  $('#recent-close')?.addEventListener('click', () => panel.classList.add('hidden'));
 }
 
-// ─── Settings ─────────────────────────────────────────────────────
+// ─── Settings ────────────────────────────────────────────────────
 function bindSettings() {
   const panel = $('#settings-panel');
 
-  $('#btn-settings').onclick = () => {
-    loadSettingsIntoUI();
+  $('#btn-settings')?.addEventListener('click', () => {
     panel.classList.toggle('hidden');
-  };
-  $('#settings-close').onclick = () => panel.classList.add('hidden');
+  });
 
-  $('#settings-save').onclick = async () => {
+  $('#settings-close')?.addEventListener('click', () => {
+    panel.classList.add('hidden');
+  });
+
+  $('#settings-save')?.addEventListener('click', async () => {
     const settings = {
-      imageStrategy: { assetDir: {} }[$('#set-image-strategy').value] || { inline: {} },
+      imageStrategy: $('#set-image-strategy').value,
       fontSize: parseInt($('#set-font-size').value) || 15,
       tabSize: parseInt($('#set-tab-size').value) || 4,
       wordWrap: $('#set-word-wrap').checked,
@@ -858,613 +1201,118 @@ function bindSettings() {
       aiKey: $('#set-ai-key').value,
       aiModel: $('#set-ai-model').value,
       customCss: $('#set-custom-css').value,
+      keybindings: customKeys,
+      exportTemplate: '',
     };
-
-    // Map select value to enum
-    if ($('#set-image-strategy').value === 'inline') {
-      settings.imageStrategy = { inline: {} };
-    } else {
-      settings.imageStrategy = { assetDir: {} };
-    }
-
     try {
       await invoke('save_settings', { settings });
-      // Apply editor settings
-      editor.style.fontSize = settings.fontSize + 'px';
-      editor.style.tabSize = settings.tabSize;
-      editor.style.whiteSpace = settings.wordWrap ? 'pre-wrap' : 'pre';
+      applySettings(settings);
       panel.classList.add('hidden');
-      flashSaved();
     } catch (err) {
-      alert(`Save settings error: ${err}`);
+      console.error('Save settings error:', err);
     }
-  };
+  });
 }
 
 async function loadSettingsIntoUI() {
   try {
-    const s = await invoke('get_settings');
-    $('#set-font-size').value = s.fontSize || 15;
-    $('#set-tab-size').value = s.tabSize || 4;
-    $('#set-word-wrap').checked = s.wordWrap !== false;
-    $('#set-auto-save').checked = s.autoSave !== false;
-    $('#set-image-strategy').value = s.imageStrategy?.inline ? 'inline' : 'assetDir';
-    $('#set-ai-endpoint').value = s.aiEndpoint || '';
-    $('#set-ai-key').value = s.aiKey || '';
-    $('#set-ai-model').value = s.aiModel || '';
-    $('#set-custom-css').value = s.customCss || '';
-
-    // Apply
-    editor.style.fontSize = (s.fontSize || 15) + 'px';
-    editor.style.tabSize = s.tabSize || 4;
-    editor.style.whiteSpace = s.wordWrap !== false ? 'pre-wrap' : 'pre';
-
-    // Load custom keybindings
-    customKeys = s.keybindings || {};
+    const settings = await invoke('get_settings');
+    $('#set-font-size').value = settings.fontSize || 15;
+    $('#set-tab-size').value = settings.tabSize || 4;
+    $('#set-word-wrap').checked = settings.wordWrap !== false;
+    $('#set-auto-save').checked = settings.autoSave !== false;
+    $('#set-image-strategy').value = settings.imageStrategy || 'assetDir';
+    $('#set-ai-endpoint').value = settings.aiEndpoint || '';
+    $('#set-ai-key').value = settings.aiKey || '';
+    $('#set-ai-model').value = settings.aiModel || '';
+    $('#set-custom-css').value = settings.customCss || '';
+    customKeys = settings.keybindings || {};
+    applySettings(settings);
   } catch (err) {
     console.error('Load settings error:', err);
   }
 }
 
-// ─── AI ───────────────────────────────────────────────────────────
-function bindAI() {
-  $('#btn-ai').onclick = () => {
-    aiPanel.classList.toggle('hidden');
-    if (!aiPanel.classList.contains('hidden')) {
-      if (aiChatMode) $('#ai-chat-input').focus();
-      loadAiStats();
-    }
-  };
-  $('#btn-ai-edit').onclick = showInlineAiEdit;
-  $('#ai-close').onclick = () => {
-    if (aiStreaming) stopAiStream();
-    aiPanel.classList.add('hidden');
-  };
+function applySettings(settings) {
+  editor.style.fontSize = (settings.fontSize || 15) + 'px';
+  editor.style.tabSize = settings.tabSize || 4;
+  editor.style.whiteSpace = settings.wordWrap !== false ? 'pre-wrap' : 'pre';
+}
 
-  // Mode switching
-  $('#ai-mode-actions').onclick = () => switchAiMode(false);
-  $('#ai-mode-chat').onclick = () => switchAiMode(true);
+// ─── Resizer ─────────────────────────────────────────────────────
+function bindResizer() {
+  const resizer = $('#resizer');
+  const editorPane = $('#editor-pane');
+  const previewPane = $('#preview-pane');
+  let isResizing = false;
 
-  document.querySelectorAll('.ai-btn[data-action]').forEach(btn => {
-    btn.onclick = () => handleAiAction(btn.dataset.action);
+  resizer?.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    document.body.style.cursor = 'col-resize';
+    e.preventDefault();
   });
 
-  aiStopBtn.onclick = stopAiStream;
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const main = $('#main');
+    const rect = main.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    const clamped = Math.max(20, Math.min(80, pct));
+    editorPane.style.width = clamped + '%';
+    previewPane.style.width = (100 - clamped) + '%';
+  });
 
-  // Chat mode
-  const chatInput = $('#ai-chat-input');
-  const chatSend = $('#ai-chat-send');
-  const chatStop = $('#ai-chat-stop');
-
-  chatSend.onclick = sendChatMessage;
-  chatStop.onclick = stopAiStream;
-
-  $('#ai-chat-clear').onclick = () => {
-    aiChatHistory = [];
-    $('#ai-chat-messages').innerHTML = '';
-  };
-
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      sendChatMessage();
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
     }
+  });
+}
+
+// ─── Keyboard shortcuts ──────────────────────────────────────────
+function bindShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    const ctrl = e.ctrlKey || e.metaKey;
+
+    if (ctrl && e.key === 'n') { e.preventDefault(); newFile(); }
+    if (ctrl && e.key === 'o') { e.preventDefault(); openFile(); }
+    if (ctrl && e.key === 's' && !e.shiftKey) { e.preventDefault(); saveFile(); }
+    if (ctrl && e.key === 'S' && e.shiftKey) { e.preventDefault(); saveFileAs(); }
+    if (ctrl && e.key === 'f') { e.preventDefault(); window.toggleSearch?.(); }
+    if (ctrl && e.key === 'h') { e.preventDefault(); window.toggleReplace?.(); }
+    if (ctrl && e.key === 'p') { e.preventDefault(); window.print(); }
+    if (ctrl && e.key === 'm') { e.preventDefault(); togglePreviewMode(); }
+
+    // Markdown-only shortcuts
+    if (isMarkdownType()) {
+      if (ctrl && e.key === 'b') { e.preventDefault(); wrapSelection('**', '**'); }
+      if (ctrl && e.key === 'i') { e.preventDefault(); wrapSelection('*', '*'); }
+      if (ctrl && e.key === 'k') { e.preventDefault(); insertLink(); }
+      if (ctrl && e.key === 'e') { e.preventDefault(); wrapSelection('`', '`'); }
+    }
+
+    // Esc closes panels
     if (e.key === 'Escape') {
-      aiPanel.classList.add('hidden');
-      editor.focus();
-    }
-  });
-
-  // Listen for streaming events from backend
-  listen('ai-chunk', (event) => {
-    if (!aiStreaming) return;
-    aiStreamText += event.payload;
-    if (aiContinuation) {
-      updateContinuationPreview();
-    } else if (aiChatMode) {
-      updateChatStream();
-    } else {
-      aiOutput.textContent = aiStreamText;
-      aiOutput.scrollTop = aiOutput.scrollHeight;
-    }
-  });
-
-  listen('ai-done', (event) => {
-    if (!aiStreaming) return;
-    aiStreaming = false;
-    // Record AI usage
-    const responseTokens = Math.ceil(aiStreamText.length / 4);
-    recordUsage(aiChatMode ? 'chat' : 'action', 0, responseTokens);
-    if (aiContinuation) {
-      finishContinuation(event.payload === 'cancelled');
-    } else if (aiChatMode) {
-      finishChatStream(event.payload === 'cancelled');
-    } else {
-      aiStatus.classList.add('hidden');
-      if (event.payload === 'cancelled') {
-        aiOutput.textContent = aiStreamText + '\n\n[Stream cancelled]';
-      }
+      $('#ai-panel')?.classList.add('hidden');
+      $('#settings-panel')?.classList.add('hidden');
+      $('#recent-panel')?.classList.add('hidden');
+      $('#search-bar')?.classList.add('hidden');
     }
   });
 }
 
-// ─── AI Mode Switching ───────────────────────────────────────────
-function switchAiMode(toChat) {
-  aiChatMode = toChat;
-  const actionsPanel = $('#ai-actions-panel');
-  const chatPanel = $('#ai-chat-panel');
-  const modeActionsBtn = $('#ai-mode-actions');
-  const modeChatBtn = $('#ai-mode-chat');
-
-  if (toChat) {
-    actionsPanel.style.display = 'none';
-    chatPanel.style.display = 'flex';
-    modeActionsBtn.classList.remove('tb-accent');
-    modeChatBtn.classList.add('tb-accent');
-    $('#ai-chat-input').focus();
-  } else {
-    actionsPanel.style.display = '';
-    chatPanel.style.display = 'none';
-    modeActionsBtn.classList.add('tb-accent');
-    modeChatBtn.classList.remove('tb-accent');
-  }
-}
-
-// ─── AI Chat ─────────────────────────────────────────────────────
-function sendChatMessage() {
-  const input = $('#ai-chat-input');
-  const text = input.value.trim();
-  if (!text || aiStreaming) return;
-
-  // Replace @selection with actual selected text
-  let userMsg = text;
-  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-  if (userMsg.includes('@selection') && sel) {
-    userMsg = userMsg.replace('@selection', `\n\n> ${sel.split('\n').join('\n> ')}`);
-  }
-
-  // Add user message to history
-  aiChatHistory.push({ role: 'user', content: userMsg });
-  renderChatMessage('user', userMsg);
-
-  // Build messages array for API
-  const systemPrompt = {
-    role: 'system',
-    content: 'You are a helpful writing assistant inside a Markdown editor called OneMarkdown. ' +
-      'Be concise and helpful. Match the language of the user. ' +
-      'When asked to write or edit content, return ONLY the content without explanation.'
-  };
-  const messages = [systemPrompt, ...aiChatHistory];
-
-  input.value = '';
-  aiStreaming = true;
-  aiStreamText = '';
-  $('#ai-chat-status').classList.remove('hidden');
-
-  // Add placeholder for assistant response
-  const msgEl = renderChatMessage('assistant', '');
-
-  invoke('ai_chat_stream', { messages }).catch(err => {
-    aiStreaming = false;
-    $('#ai-chat-status').classList.add('hidden');
-    renderChatMessage('system', '❌ ' + err);
+// ─── Window close ────────────────────────────────────────────────
+function bindWindowClose() {
+  window.addEventListener('beforeunload', (e) => {
+    if (isModified) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
   });
 }
 
-function renderChatMessage(role, content) {
-  const container = $('#ai-chat-messages');
-  const div = document.createElement('div');
-  div.className = `ai-chat-msg ${role}`;
-  div.textContent = content;
-  if (role === 'assistant' && content) {
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'ai-chat-copy';
-    copyBtn.textContent = '📋';
-    copyBtn.title = 'Copy to clipboard';
-    copyBtn.onclick = () => {
-      navigator.clipboard.writeText(div.textContent.replace('📋', '')).then(() => {
-        copyBtn.textContent = '✓';
-        setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
-      });
-    };
-    div.appendChild(copyBtn);
-  }
-  container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
-  return div;
-}
-
-function updateChatStream() {
-  const container = $('#ai-chat-messages');
-  const lastMsg = container.lastElementChild;
-  if (lastMsg && lastMsg.classList.contains('assistant')) {
-    lastMsg.textContent = aiStreamText;
-    container.scrollTop = container.scrollHeight;
-  }
-}
-
-function finishChatStream(cancelled) {
-  $('#ai-chat-status').classList.add('hidden');
-  const finalText = cancelled ? aiStreamText + ' [cancelled]' : aiStreamText;
-  if (finalText) {
-    aiChatHistory.push({ role: 'assistant', content: finalText });
-    // Update the last assistant message
-    const container = $('#ai-chat-messages');
-    const lastMsg = container.lastElementChild;
-    if (lastMsg && lastMsg.classList.contains('assistant')) {
-      lastMsg.textContent = finalText;
-    }
-  }
-  $('#ai-chat-input').focus();
-}
-
-// ─── Token Count ─────────────────────────────────────────────────
-async function updateTokenCount(text) {
-  if (!text) return;
-  try {
-    const count = await invoke('ai_count_tokens', { text });
-    const el = $('#ai-token-count');
-    if (el) el.textContent = `~${count} tokens`;
-  } catch (err) {
-    // silent
-  }
-}
-
-async function loadAiStats() {
-  try {
-    const stats = await invoke('get_ai_stats');
-    const el = $('#ai-usage-stats');
-    if (el && stats.totalCalls > 0) {
-      el.textContent = `(${stats.totalCalls} calls, ~${stats.totalPromptTokens + stats.totalResponseTokens} tokens)`;
-    }
-  } catch (err) {
-    // silent
-  }
-}
-
-async function recordUsage(action, promptTokens, responseTokens) {
-  try {
-    await invoke('record_ai_usage', { action, promptTokens, responseTokens });
-  } catch (err) {
-    // silent
-  }
-}
-
-function startAiStream() {
-  aiStreaming = true;
-  aiStreamText = '';
-  aiOutput.textContent = '';
-  aiStatus.classList.remove('hidden');
-}
-
-function stopAiStream() {
-  if (!aiStreaming) return;
-  invoke('ai_stream_cancel');
-}
-
-async function handleAiAction(action) {
-  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-  const fullContent = editor.value;
-
-  // Context bundle doesn't need streaming
-  if (action === 'context') {
-    aiOutput.textContent = '⏳ Loading...';
-    try {
-      const text = await invoke('ai_context_bundle', { content: fullContent, includeFrontmatter: true });
-      aiOutput.textContent = text || '(empty)';
-    } catch (err) {
-      aiOutput.textContent = `❌ ${err}`;
-    }
-    return;
-  }
-
-  if (action === 'fetch-url') {
-    const url = prompt('Enter URL to fetch as context:');
-    if (!url) return;
-    aiOutput.textContent = `⏳ Fetching ${url}...`;
-    try {
-      const text = await invoke('ai_fetch_url', { url });
-      aiOutput.textContent = `--- ${url} ---\n\n${text}`;
-    } catch (err) {
-      aiOutput.textContent = `❌ ${err}`;
-    }
-    return;
-  }
-
-  // Update token count for selected text
-  updateTokenCount(sel || fullContent);
-
-  // Use streaming commands for AI actions
-  startAiStream();
-
-  try {
-    switch (action) {
-      case 'explain':
-        await invoke('ai_explain_stream', { text: sel || fullContent, context: sel ? fullContent : null });
-        break;
-      case 'summarize':
-        await invoke('ai_summarize_stream', { content: fullContent, maxSentences: 5 });
-        break;
-      case 'translate':
-        const lang = prompt('Translate to:', 'English');
-        if (!lang) { aiStreaming = false; aiStatus.classList.add('hidden'); return; }
-        await invoke('ai_translate_stream', { text: sel || fullContent, targetLang: lang });
-        break;
-      case 'rewrite':
-        const instr = prompt('How to rewrite?', 'Make it more concise and professional');
-        if (!instr) { aiStreaming = false; aiStatus.classList.add('hidden'); return; }
-        await invoke('ai_rewrite_stream', { text: sel || fullContent, instruction: instr });
-        break;
-    }
-  } catch (err) {
-    aiStreaming = false;
-    aiStatus.classList.add('hidden');
-    aiOutput.textContent = `❌ ${err}`;
-  }
-}
-
-// Inline AI Edit - shows a small input near the selection
-// ─── Inline AI Edit ───────────────────────────────────────────
-let inlineAiBox = null;
-
-function showInlineAiEdit() {
-  const selStart = editor.selectionStart;
-  const selEnd = editor.selectionEnd;
-  const selText = editor.value.substring(selStart, selEnd);
-
-  if (!selText.trim()) {
-    flashEditorBorder('var(--red)');
-    return;
-  }
-
-  removeInlineAiBox();
-
-  // Calculate position near end of selection
-  const pos = getCaretPixelPosition(editor, selEnd);
-
-  // Create the inline box
-  inlineAiBox = document.createElement('div');
-  inlineAiBox.className = 'inline-ai-box';
-  inlineAiBox.innerHTML = `
-    <div class="inline-ai-header">✨ AI Edit <span style="font-weight:400;opacity:.6">(${selText.length} chars)</span></div>
-    <div class="inline-ai-row">
-      <input class="inline-ai-input" type="text"
-        placeholder="e.g. make shorter, translate, fix grammar..."
-        spellcheck="false" />
-      <button class="inline-ai-go">Go</button>
-      <button class="inline-ai-cancel" title="Cancel (Esc)">✕</button>
-    </div>
-    <div class="inline-ai-status"></div>
-  `;
-
-  document.body.appendChild(inlineAiBox);
-
-  // Position — below the selection line, clamped to viewport
-  const boxW = 360;
-  const boxH = 90;
-  let top = pos.top + 4;
-  let left = Math.max(8, Math.min(pos.left, window.innerWidth - boxW - 8));
-  if (top + boxH > window.innerHeight - 30) {
-    top = pos.top - boxH - 4; // flip above
-  }
-  if (top < 44) top = 44; // below toolbar
-  inlineAiBox.style.top = top + 'px';
-  inlineAiBox.style.left = left + 'px';
-
-  const input = inlineAiBox.querySelector('.inline-ai-input');
-  const goBtn = inlineAiBox.querySelector('.inline-ai-go');
-  const cancelBtn = inlineAiBox.querySelector('.inline-ai-cancel');
-  const statusEl = inlineAiBox.querySelector('.inline-ai-status');
-
-  input.focus();
-
-  // ── Rewrite handler ──
-  async function doRewrite() {
-    const instruction = input.value.trim();
-    if (!instruction) { input.focus(); return; }
-
-    input.disabled = true;
-    goBtn.disabled = true;
-    statusEl.innerHTML = '<span class="ai-streaming-indicator"></span> Rewriting…';
-
-    try {
-      const result = await invoke('ai_rewrite', { text: selText, instruction });
-
-      // Replace selection preserving undo history
-      editor.focus();
-      editor.setSelectionRange(selStart, selEnd);
-      document.execCommand('insertText', false, result.text);
-
-      removeInlineAiBox();
-      flashEditorBorder('var(--green)');
-    } catch (err) {
-      statusEl.textContent = '❌ ' + err;
-      input.disabled = false;
-      goBtn.disabled = false;
-      input.focus();
-    }
-  }
-
-  goBtn.onclick = doRewrite;
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); doRewrite(); }
-    if (e.key === 'Escape') { e.preventDefault(); removeInlineAiBox(); editor.focus(); }
-  });
-
-  cancelBtn.onclick = () => { removeInlineAiBox(); editor.focus(); };
-
-  // Close on outside click (mousedown so it fires before focus shifts)
-  setTimeout(() => {
-    document.addEventListener('mousedown', onOutsideClick);
-  }, 0);
-}
-
-function onOutsideClick(e) {
-  if (inlineAiBox && !inlineAiBox.contains(e.target)) {
-    removeInlineAiBox();
-    document.removeEventListener('mousedown', onOutsideClick);
-  }
-}
-
-function removeInlineAiBox() {
-  document.removeEventListener('mousedown', onOutsideClick);
-  if (inlineAiBox) {
-    inlineAiBox.remove();
-    inlineAiBox = null;
-  }
-}
-
-function flashEditorBorder(color) {
-  editor.style.boxShadow = `inset 0 0 0 2px ${color}`;
-  setTimeout(() => { editor.style.boxShadow = ''; }, 400);
-}
-
-/**
- * Approximate pixel position of a caret offset inside a textarea.
- * Works well for monospace fonts (the editor uses JetBrains Mono).
- */
-function getCaretPixelPosition(textarea, offset) {
-  const text = textarea.value.substring(0, offset);
-  const lines = text.split('\n');
-  const lineIdx = lines.length - 1;
-  const colIdx = lines[lineIdx].length;
-
-  const cs = getComputedStyle(textarea);
-  const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.7;
-  const paddingTop = parseFloat(cs.paddingTop);
-  const paddingLeft = parseFloat(cs.paddingLeft);
-  const borderTop = parseFloat(cs.borderTopWidth);
-  const borderLeft = parseFloat(cs.borderLeftWidth);
-
-  // Monospace char width ≈ fontSize * 0.6
-  const charWidth = parseFloat(cs.fontSize) * 0.6;
-
-  const rect = textarea.getBoundingClientRect();
-
-  return {
-    top: rect.top + borderTop + paddingTop + lineIdx * lineHeight - textarea.scrollTop,
-    left: rect.left + borderLeft + paddingLeft + colIdx * charWidth,
-  };
-}
-
-// ─── AI Continuation ────────────────────────────────────────────
-
-async function startAiContinuation() {
-  if (aiStreaming) return;
-
-  const cursorPos = editor.selectionStart;
-  const textBefore = editor.value.substring(0, cursorPos);
-  const textAfter = editor.value.substring(editor.selectionEnd);
-
-  if (!textBefore.trim()) return;
-
-  // Start streaming in continuation mode
-  aiStreaming = true;
-  aiContinuation = true;
-  aiStreamText = '';
-
-  showContinuationBox();
-
-  try {
-    await invoke('ai_continue_stream', {
-      textBefore,
-      textAfter: textAfter.trim() ? textAfter : null,
-    });
-  } catch (err) {
-    aiStreaming = false;
-    aiContinuation = false;
-    removeContinuationBox();
-    flashEditorBorder('var(--red)');
-    console.error('AI continue error:', err);
-  }
-}
-
-function showContinuationBox() {
-  removeContinuationBox();
-
-  const pos = getCaretPixelPosition(editor, editor.selectionStart);
-
-  continueBox = document.createElement('div');
-  continueBox.className = 'inline-ai-box';
-  continueBox.style.minWidth = '200px';
-  continueBox.style.maxWidth = '400px';
-  continueBox.innerHTML = `
-    <div class="inline-ai-header">✨ AI Writing...</div>
-    <div class="inline-ai-status" style="padding:4px 0;font-size:12px;color:var(--text2)">
-      <span class="ai-streaming-indicator"></span>
-      <span id="continue-preview" style="display:block;margin-top:4px;white-space:pre-wrap;word-wrap:break-word;max-height:120px;overflow-y:auto;font-size:12px;color:var(--text);line-height:1.5"></span>
-    </div>
-    <div style="display:flex;gap:4px;margin-top:4px">
-      <button class="inline-ai-go" id="continue-accept" disabled title="Accept (Tab)">✓ Accept</button>
-      <button class="inline-ai-cancel" id="continue-cancel" title="Cancel (Esc)">✕</button>
-    </div>
-  `;
-
-  document.body.appendChild(continueBox);
-
-  // Position below caret
-  let top = pos.top + 4;
-  let left = Math.max(8, Math.min(pos.left, window.innerWidth - 320));
-  if (top + 100 > window.innerHeight - 30) top = pos.top - 110;
-  if (top < 44) top = 44;
-  continueBox.style.top = top + 'px';
-  continueBox.style.left = left + 'px';
-
-  continueBox.querySelector('#continue-accept').onclick = () => acceptContinuation();
-  continueBox.querySelector('#continue-cancel').onclick = () => cancelContinuation();
-}
-
-function updateContinuationPreview() {
-  if (!continueBox) return;
-  const preview = continueBox.querySelector('#continue-preview');
-  if (preview) {
-    preview.textContent = aiStreamText;
-    preview.scrollTop = preview.scrollHeight;
-  }
-}
-
-function finishContinuation(cancelled) {
-  aiContinuation = false;
-  if (!continueBox) return;
-
-  if (cancelled) {
-    removeContinuationBox();
-    flashEditorBorder('var(--yellow)');
-    return;
-  }
-
-  // Enable accept button
-  const acceptBtn = continueBox.querySelector('#continue-accept');
-  if (acceptBtn) acceptBtn.disabled = false;
-
-  const header = continueBox.querySelector('.inline-ai-header');
-  if (header) header.textContent = '✨ Done — press Accept';
-}
-
-function acceptContinuation() {
-  if (!aiStreamText) return;
-  editor.focus();
-  document.execCommand('insertText', false, aiStreamText);
-  removeContinuationBox();
-  flashEditorBorder('var(--green)');
-}
-
-function cancelContinuation() {
-  if (aiStreaming) invoke('ai_stream_cancel');
-  aiContinuation = false;
-  removeContinuationBox();
-  editor.focus();
-}
-
-function removeContinuationBox() {
-  if (continueBox) {
-    continueBox.remove();
-    continueBox = null;
-  }
-}
-
-// ─── Drag & Drop ──────────────────────────────────────────────────
+// ─── Drag & Drop ─────────────────────────────────────────────────
 function bindDragDrop() {
   document.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -1477,186 +1325,57 @@ function bindDragDrop() {
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    // Check if it's a markdown file
-    const name = file.name.toLowerCase();
-    if (name.endsWith('.md') || name.endsWith('.markdown') || name.endsWith('.mdown') || name.endsWith('.txt')) {
-      // Tauri file path
-      if (file.path) {
-        try {
-          const info = await invoke('open_file', { path: file.path });
-          editor.value = info.content;
-          currentPath = info.path;
-          isModified = false;
-          status.file.textContent = info.path;
-          updateTitle();
-          renderPreview();
-          updateStatus();
-          startWatching(info.path);
-        } catch (err) {
-          console.error('Drop open error:', err);
-        }
-      }
-    }
-  });
-}
+    // For dropped files, we need to get the path
+    // Tauri doesn't expose file paths from drag events directly,
+    // so we read the content and detect type from the name
+    if (isModified && !confirm('Unsaved changes. Continue?')) return;
 
-// ─── Shortcuts ────────────────────────────────────────────────────
-
-// Action registry — maps action names to functions
-const shortcutActions = {
-  new: () => newFile(),
-  open: () => openFile(),
-  save: () => saveFile(),
-  saveAs: () => saveFileAs(),
-  bold: () => wrap('**', '**'),
-  italic: () => wrap('*', '*'),
-  strikethrough: () => wrap('~~', '~~'),
-  code: () => wrap('`', '`'),
-  link: () => insertLink(),
-  search: () => { window._searchBar.classList.remove('hidden'); window._searchInput.focus(); window._searchInput.select(); },
-  replace: () => { window._searchBar.classList.remove('hidden'); window._replaceInput.focus(); },
-  aiPanel: () => aiPanel.classList.toggle('hidden'),
-  aiEdit: () => showInlineAiEdit(),
-  aiContinue: () => startAiContinuation(),
-  print: () => printPreview(),
-};
-
-/**
- * Match a KeyboardEvent against a shortcut string.
- * Format: "Ctrl+Shift+Key" or "Ctrl+Key" (case-insensitive for key).
- */
-function matchShortcut(e, str) {
-  const parts = str.toLowerCase().split('+');
-  const key = parts.pop();
-  const needCtrl = parts.includes('ctrl') || parts.includes('cmd');
-  const needShift = parts.includes('shift');
-  const needAlt = parts.includes('alt');
-  const eventKey = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
-  return (
-    eventKey === key &&
-    (e.ctrlKey || e.metaKey) === needCtrl &&
-    e.shiftKey === needShift &&
-    e.altKey === needAlt
-  );
-}
-
-function bindShortcuts() {
-  document.addEventListener('keydown', (e) => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (!mod) return;
-
-    // Check custom keybindings first
-    for (const [action, shortcut] of Object.entries(customKeys)) {
-      if (matchShortcut(e, shortcut) && shortcutActions[action]) {
-        e.preventDefault();
-        shortcutActions[action]();
-        return;
-      }
-    }
-
-    // Default keybindings
-    switch (e.key) {
-      case 'n': e.preventDefault(); newFile(); break;
-      case 'o': e.preventDefault(); openFile(); break;
-      case 's': e.preventDefault(); e.shiftKey ? saveFileAs() : saveFile(); break;
-      case 'b': e.preventDefault(); wrap('**', '**'); break;
-      case 'i': e.preventDefault(); wrap('*', '*'); break;
-      case 'k': e.preventDefault(); insertLink(); break;
-      case 'e': e.preventDefault(); wrap('`', '`'); break;
-      case 'l': e.preventDefault(); aiPanel.classList.toggle('hidden'); break;
-      case 'L': e.preventDefault(); showInlineAiEdit(); break;
-      case 'p': e.preventDefault(); printPreview(); break;
-      case 'f':
-        e.preventDefault();
-        window._searchBar.classList.remove('hidden');
-        window._searchInput.focus();
-        const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-        if (sel) {
-          window._searchInput.value = sel;
-          window._doSearch();
-        }
-        window._searchInput.select();
-        break;
-      case 'h':
-        e.preventDefault();
-        window._searchBar.classList.remove('hidden');
-        window._replaceInput.focus();
-        break;
-      case 'Enter':
-        if (mod) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            startAiContinuation();
-          } else {
-            const pos = editor.selectionEnd;
-            const rest = editor.value.slice(pos);
-            const nextLine = rest.startsWith('\n') ? '' : '\n';
-            insertText(nextLine + '\n');
-          }
-        }
-        break;
-    }
-  });
-}
-
-// ─── Window close protection ──────────────────────────────────────
-function bindWindowClose() {
-  window.addEventListener('beforeunload', (e) => {
-    if (isModified) {
-      e.preventDefault();
-      e.returnValue = '';
-    }
-  });
-}
-
-// ─── Auto-save ────────────────────────────────────────────────────
-function scheduleAutoSave() {
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(async () => {
-    if (!isModified || !currentPath) return;
-    try {
-      await invoke('save_file', { content: editor.value });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      editor.value = reader.result;
+      currentPath = ''; // Can't get path from drag
       isModified = false;
+
+      // Detect type from filename
+      const name = file.name;
+      try {
+        const [fileType, language] = await invoke('detect_file_type', { path: name });
+        setFileType(fileType, language);
+      } catch (e) {
+        setFileType('text', 'plain text');
+      }
+
       updateTitle();
-      flashSaved();
-    } catch (err) {
-      console.error('Auto-save error:', err);
-    }
-  }, 3000); // 3 second debounce
+      renderPreview();
+      updateStatus();
+    };
+    reader.readAsText(file);
+  });
 }
 
-function flashSaved() {
-  status.saved.textContent = '✓ saved';
-  status.saved.classList.add('show');
-  setTimeout(() => status.saved.classList.remove('show'), 2000);
-}
-
-// ─── File watcher (external change detection) ───────────────────
+// ─── File Watcher ────────────────────────────────────────────────
 function bindFileWatcher() {
   listen('file-changed', async () => {
     if (!currentPath) return;
-    // Prompt user to reload
-    const name = currentPath.split(/[/\\]/).pop();
-    const reload = confirm(`"${name}" has been modified externally.\n\nReload with the new version?`);
-    if (reload) {
+    if (confirm('File changed externally. Reload?')) {
       try {
         const info = await invoke('open_file', { path: currentPath });
         editor.value = info.content;
         isModified = false;
+        const fileType = info.fileType || 'markdown';
+        const language = info.language || 'markdown';
+        setFileType(fileType, language);
         updateTitle();
         renderPreview();
         updateStatus();
       } catch (err) {
         console.error('Reload error:', err);
       }
-    } else {
-      isModified = true;
-      updateTitle();
     }
   });
 }
 
-async function startWatching(path) {
+async function startFileWatcher(path) {
   try {
     await invoke('start_watching', { path });
   } catch (err) {
@@ -1664,194 +1383,163 @@ async function startWatching(path) {
   }
 }
 
-async function stopWatching() {
-  try {
-    await invoke('stop_watching');
-  } catch (err) {
-    // ignore
-  }
-}
+// ─── AI Panel ────────────────────────────────────────────────────
+function bindAI() {
+  const panel = $('#ai-panel');
+  const actionsPanel = $('#ai-actions-panel');
+  const chatPanel = $('#ai-chat-panel');
+  const chatInput = $('#ai-chat-input');
+  const chatMessages = $('#ai-chat-messages');
 
-// ─── Print support ────────────────────────────────────────────────
-function printPreview() {
-  // Open print dialog with preview content
-  window.print();
-}
+  $('#btn-ai')?.addEventListener('click', () => panel.classList.toggle('hidden'));
+  $('#ai-close')?.addEventListener('click', () => panel.classList.add('hidden'));
 
-// ─── File operations ──────────────────────────────────────────────
-async function newFile() {
-  if (isModified && !confirm('Discard unsaved changes?')) return;
-  stopWatching();
-  await invoke('new_file');
-  editor.value = '';
-  currentPath = '';
-  isModified = false;
-  updateTitle();
-  renderPreview();
-  updateStatus();
-}
+  $('#ai-mode-actions')?.addEventListener('click', () => {
+    actionsPanel.style.display = '';
+    chatPanel.style.display = 'none';
+    $('#ai-mode-actions').classList.add('tb-accent');
+    $('#ai-mode-chat').classList.remove('tb-accent');
+    aiChatMode = false;
+  });
 
-async function openFile() {
-  try {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }],
+  $('#ai-mode-chat')?.addEventListener('click', () => {
+    actionsPanel.style.display = 'none';
+    chatPanel.style.display = 'flex';
+    $('#ai-mode-chat').classList.add('tb-accent');
+    $('#ai-mode-actions').classList.remove('tb-accent');
+    aiChatMode = true;
+    chatInput?.focus();
+  });
+
+  // AI action buttons
+  document.querySelectorAll('.ai-btn[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      if (action === 'fetch-url') {
+        aiFetchUrl();
+      } else {
+        aiAction(action);
+      }
     });
-    if (!selected) return;
+  });
 
-    const info = await invoke('open_file', { path: selected });
-    editor.value = info.content;
-    currentPath = info.path;
-    isModified = false;
-    status.file.textContent = info.path;
-    updateTitle();
-    renderPreview();
-    updateStatus();
-    startWatching(info.path);
-  } catch (err) {
-    console.error('Open error:', err);
-  }
+  // AI stop
+  $('#ai-stop')?.addEventListener('click', aiStop);
+
+  // Chat send
+  $('#ai-chat-send')?.addEventListener('click', aiChatSend);
+  chatInput?.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      aiChatSend();
+    }
+  });
+
+  // Chat stop
+  $('#ai-chat-stop')?.addEventListener('click', aiStop);
+
+  // Chat clear
+  $('#ai-chat-clear')?.addEventListener('click', () => {
+    aiChatHistory = [];
+    chatMessages.innerHTML = '';
+  });
 }
 
-async function saveFile() {
-  if (!currentPath) return saveFileAs();
-  try {
-    await invoke('save_file', { content: editor.value });
-    isModified = false;
-    updateTitle();
-    flashSaved();
-  } catch (err) {
-    console.error('Save error:', err);
-  }
-}
+async function aiAction(action) {
+  const content = editor.value;
+  if (!content.trim()) return;
 
-async function saveFileAs() {
+  aiOutput.textContent = '';
+  aiStatus.classList.remove('hidden');
+  aiStreaming = true;
+  aiStreamText = '';
+
   try {
-    const filePath = await save({
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    const streamKey = `ai_${action}_stream`;
+    await invoke(streamKey, {
+      content,
+      onChunk: (chunk) => {
+        aiStreamText += chunk;
+        aiOutput.textContent = aiStreamText;
+        aiOutput.scrollTop = aiOutput.scrollHeight;
+      },
     });
-    if (!filePath) return;
-
-    await invoke('save_file_as', { path: filePath, content: editor.value });
-    currentPath = filePath;
-    isModified = false;
-    status.file.textContent = filePath;
-    updateTitle();
-    flashSaved();
-    startWatching(filePath);
   } catch (err) {
-    console.error('Save as error:', err);
+    aiOutput.textContent = `Error: ${err}`;
+  } finally {
+    aiStreaming = false;
+    aiStatus.classList.add('hidden');
   }
 }
 
-async function exportHtml() {
+async function aiChatSend() {
+  const input = $('#ai-chat-input');
+  const messages = $('#ai-chat-messages');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  // Add user message
+  aiChatHistory.push({ role: 'user', content: msg });
+  const userDiv = document.createElement('div');
+  userDiv.className = 'ai-chat-msg ai-chat-user';
+  userDiv.textContent = msg;
+  messages.appendChild(userDiv);
+  input.value = '';
+
+  // Add assistant placeholder
+  const assistantDiv = document.createElement('div');
+  assistantDiv.className = 'ai-chat-msg ai-chat-assistant';
+  assistantDiv.textContent = '...';
+  messages.appendChild(assistantDiv);
+  messages.scrollTop = messages.scrollHeight;
+
+  $('#ai-chat-status')?.classList.remove('hidden');
+  aiStreaming = true;
+  aiStreamText = '';
+
   try {
-    const filePath = await save({
-      filters: [{ name: 'HTML', extensions: ['html'] }],
+    await invoke('ai_chat_stream', {
+      messages: aiChatHistory,
+      onChunk: (chunk) => {
+        aiStreamText += chunk;
+        assistantDiv.textContent = aiStreamText;
+        messages.scrollTop = messages.scrollHeight;
+      },
     });
-    if (!filePath) return;
-
-    await invoke('export_html', { content: editor.value, path: filePath });
-    alert(`Exported to ${filePath}`);
+    aiChatHistory.push({ role: 'assistant', content: aiStreamText });
   } catch (err) {
-    console.error('Export error:', err);
+    assistantDiv.textContent = `Error: ${err}`;
+  } finally {
+    aiStreaming = false;
+    $('#ai-chat-status')?.classList.add('hidden');
   }
 }
 
-// ─── Text helpers (execCommand preserves undo) ────────────────────
-function wrap(before, after) {
-  editor.focus();
-  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-  const replacement = before + (sel || '') + after;
-  document.execCommand('insertText', false, replacement);
-  if (!sel) {
-    const s = editor.selectionStart;
-    editor.selectionStart = editor.selectionEnd = s - after.length;
+async function aiFetchUrl() {
+  const url = prompt('Enter URL to fetch:');
+  if (!url) return;
+  try {
+    const result = await invoke('ai_fetch_url', { url });
+    aiOutput.textContent = result;
+  } catch (err) {
+    aiOutput.textContent = `Error: ${err}`;
   }
-  editor.dispatchEvent(new Event('input'));
 }
 
-function insertText(text) {
-  editor.focus();
-  document.execCommand('insertText', false, text);
-  editor.dispatchEvent(new Event('input'));
+async function aiStop() {
+  try {
+    await invoke('ai_stream_cancel');
+  } catch (err) {
+    console.error('AI stop error:', err);
+  }
+  aiStreaming = false;
+  aiStatus?.classList.add('hidden');
 }
 
-function linePrefix(prefix) {
+// ─── Utility ─────────────────────────────────────────────────────
+function insertAtCursor(text) {
   const s = editor.selectionStart;
-  const ls = editor.value.lastIndexOf('\n', s - 1) + 1;
-  const currentLine = editor.value.substring(ls);
-  if (currentLine.startsWith(prefix)) {
-    editor.setSelectionRange(ls, ls + prefix.length);
-    document.execCommand('delete', false);
-  } else {
-    editor.setSelectionRange(ls, ls);
-    document.execCommand('insertText', false, prefix);
-  }
-  editor.dispatchEvent(new Event('input'));
-}
-
-function insertLink() {
-  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-  sel ? wrap('[', '](url)') : insertText('[text](url)');
-}
-
-// ─── Resizer ──────────────────────────────────────────────────────
-function bindResizer() {
-  const resizer = $('#resizer');
-  const ep = $('#editor-pane');
-  let dragging = false, startX = 0, startW = 0;
-
-  resizer.addEventListener('mousedown', (e) => {
-    dragging = true;
-    startX = e.clientX;
-    startW = ep.offsetWidth;
-    resizer.classList.add('active');
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const total = $('#main').offsetWidth;
-    const w = Math.max(200, Math.min(total - 200 - 3, startW + (e.clientX - startX)));
-    ep.style.flex = 'none';
-    ep.style.width = w + 'px';
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    resizer.classList.remove('active');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  });
-}
-
-// ─── Status bar ───────────────────────────────────────────────────
-function updateStatus() {
-  const text = editor.value;
-  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-  const chars = text.length;
-  const lines = text.split('\n').length;
-  const readMin = Math.max(1, Math.ceil(words / 200));
-
-  status.words.textContent = `${words} words`;
-  status.chars.textContent = `${chars} chars`;
-  status.lines.textContent = `${lines} lines`;
-  status.readTime.textContent = `~${readMin} min read`;
-  updateCursorPos();
-}
-
-function updateCursorPos() {
-  const pos = editor.selectionStart;
-  const before = editor.value.substring(0, pos);
-  const ln = before.split('\n').length;
-  const col = pos - before.lastIndexOf('\n');
-  status.cursor.textContent = `Ln ${ln}, Col ${col}`;
-}
-
-function updateTitle() {
-  const name = currentPath ? currentPath.split(/[/\\]/).pop() : 'Untitled';
-  fileTitle.textContent = isModified ? `${name} •` : name;
+  editor.setSelectionRange(s, s);
+  document.execCommand('insertText', false, text);
+  editor.focus();
 }
