@@ -68,7 +68,7 @@ impl FileType {
         }
     }
 
-    pub fn syntax_token(&self, path: &str) -> &str {
+    pub fn syntax_token(path: &str) -> &str {
         let ext = PathBuf::from(path)
             .extension()
             .and_then(OsStr::to_str)
@@ -98,6 +98,7 @@ impl FileType {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_markdown(&self) -> bool {
         matches!(self, FileType::Markdown)
     }
@@ -246,7 +247,7 @@ pub async fn open_file(
     s.current_path = Some(path_buf);
 
     let file_type = FileType::from_path(&path);
-    let language = file_type.syntax_token(&path).to_string();
+    let language = FileType::syntax_token(&path).to_string();
 
     Ok(FileInfo {
         path,
@@ -340,7 +341,7 @@ pub fn new_file(state: tauri::State<Mutex<EditorState>>) -> Result<FileInfo, Str
 #[tauri::command]
 pub fn detect_file_type(path: String) -> Result<(FileType, String), String> {
     let ft = FileType::from_path(&path);
-    let lang = ft.syntax_token(&path).to_string();
+    let lang = FileType::syntax_token(&path).to_string();
     Ok((ft, lang))
 }
 
